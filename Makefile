@@ -1,7 +1,7 @@
 APXS_BIN     = ~/sandbox/bin/apxs
 GLIB_INCLUDES = `pkg-config  --cflags glib-2.0`
 GLIB_LIBS     = `pkg-config  --libs glib-2.0`
-CFLAGS   = -DDEBUG -Wall -O3 -ggdb -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64
+CFLAGS   = -O3 -Wall -ggdb -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64
 	
 all: thrashd master_thrasher 
 

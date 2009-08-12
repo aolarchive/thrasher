@@ -19,16 +19,18 @@
  * inject or remove 
  */
 static uint8_t  mode = 2;
+static unsigned int test_number = 0;
 static char    *thrashd_addr = "127.0.0.1";
 static int      thrashd_port = 1972;
 static char    *inject_addr = NULL;
+static int      sleeper = 0;
 
 void
 parse_args(int argc, char **argv)
 {
     int             c;
 
-    while ((c = getopt(argc, argv, "hirs:p:a:")) != -1) {
+    while ((c = getopt(argc, argv, "hirs:p:a:t:u:")) != -1) {
         switch (c) {
         case 'i':
             mode = 2;
@@ -45,6 +47,14 @@ parse_args(int argc, char **argv)
         case 'a':
             inject_addr = optarg;
             break;
+	case 't':
+	    mode = 0;
+	    test_number = atoi(optarg);
+	    break;
+	case 'u':
+	    sleeper = atoi(optarg);
+	    break;
+
         case 'h':
             printf("Usage: %s [opts]\n", argv[0]);
             printf(" -i: set mode to injection\n"
@@ -57,23 +67,68 @@ parse_args(int argc, char **argv)
     }
 }
 
+
 void
-beef_injector(void)
+thrashd_thrasher(void)
+{
+    struct sockaddr_in inaddr;
+    uint32_t addr;
+    int sock;
+    
+    addr = inet_addr(thrashd_addr);
+    inaddr.sin_family = AF_INET;
+    inaddr.sin_addr.s_addr = addr;
+    inaddr.sin_port = htons(thrashd_port);
+    sock = socket(PF_INET, SOCK_STREAM, 0);
+    connect(sock, (struct sockaddr *)&inaddr, sizeof(inaddr));
+
+    
+    uint32_t start = 1;
+    uint32_t end   = test_number;
+    uint32_t i;
+   for (i = start; i < end; i++)
+   {
+       uint8_t type = 0;
+       uint32_t src_ip = i;
+       uint16_t uri_len = htons(2);
+       uint16_t host_len = htons(2);
+       uint8_t  ret;
+       struct iovec vec[6];
+
+       vec[0].iov_base = &type;
+       vec[0].iov_len = 1; 
+       vec[1].iov_base = &src_ip;
+       vec[1].iov_len = sizeof(uint32_t);
+       vec[2].iov_base = &uri_len;
+       vec[2].iov_len = sizeof(uint16_t);
+       vec[3].iov_base = &host_len;
+       vec[3].iov_len = sizeof(uint16_t);
+       vec[4].iov_base = "##"; 
+       vec[4].iov_len = 2; 
+       vec[5].iov_base = "##"; 
+       vec[5].iov_len = 2; 
+
+       writev(sock, vec, 6);
+       recv(sock, &ret, 1, 0);
+
+       if (i % 1000 == 0)
+	   printf("%d\n", i);
+
+   }
+
+   close(sock);
+}
+    
+void
+thrashd_injector(uint32_t inject_addr)
 {
     int             sock;
-    uint32_t        to_inject,
-                    addr;
+    uint32_t addr;
     struct sockaddr_in inaddr;
-    struct iovec    vec[2];
+    struct iovec    vec[4];
 
     if ((addr = inet_addr(thrashd_addr)) < 0) {
         fprintf(stderr, "%s is not a valid thrashd addr\n", thrashd_addr);
-        exit(1);
-    }
-
-    if ((to_inject = inet_addr(inject_addr)) < 0) {
-        fprintf(stderr, "%s is not a valid inject/remove addr\n",
-                inject_addr);
         exit(1);
     }
 
@@ -93,10 +148,10 @@ beef_injector(void)
 
     vec[0].iov_base = &mode;
     vec[0].iov_len = sizeof(uint8_t);
-    vec[1].iov_base = &to_inject;
+    vec[1].iov_base = &inject_addr;
     vec[1].iov_len = sizeof(uint32_t);
-
     writev(sock, vec, 2);
+
     close(sock);
 }
 
@@ -108,6 +163,11 @@ main(int argc, char **argv)
         exit(1);
     }
     parse_args(argc, argv);
-    beef_injector();
+
+    if (test_number)
+	thrashd_thrasher();
+    else
+	thrashd_injector(inet_addr(inject_addr));
+
     return 0;
 }

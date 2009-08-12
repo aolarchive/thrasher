@@ -13,6 +13,8 @@
 #include <getopt.h>
 #include <assert.h>
 #include <errno.h>
+#include <sys/resource.h>
+#include <sys/sysinfo.h>
 #define __FAVOR_BSD
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -25,6 +27,7 @@
 #include <net/ethernet.h>
 #include <syslog.h>
 #include <glib.h>
+#include <sys/queue.h>
 #include <event.h>
 #include <evhttp.h>
 #include <evdns.h>
@@ -88,7 +91,6 @@ typedef struct qstats {
     uint32_t        connections;
     GHashTable     *table;
     struct event    timeout;
-    struct event    hard_timeout;
 } qstats_t;
 
 typedef struct blocked_node {
@@ -96,7 +98,6 @@ typedef struct blocked_node {
     uint32_t        count;
     uint32_t        first_seen_addr;
     struct event    timeout;
-    struct event    hard_timeout;
 } blocked_node_t;
 
 typedef struct rbl_negcache {
@@ -117,7 +118,6 @@ static uint32_t uri_check;
 static uint32_t site_check;
 static char    *bind_addr;
 static uint16_t bind_port;
-static uint32_t hard_block_timeout;
 static uint32_t soft_block_timeout;
 static block_ratio_t site_ratio;
 static block_ratio_t uri_ratio;
@@ -130,7 +130,11 @@ static int      rundaemon;
 static int      syslog_enabled;
 static char    *rbl_zone;
 static char    *rbl_ns;
+static int      rbl_limit;
+static int      rbl_max_queries;
+static int      rbl_queries;
 static uint32_t rbl_negcache_timeout;
+static uint64_t total_blocked_connections;
 GSList         *current_connections;
 GSList         *replication_connections;
 
@@ -257,7 +261,6 @@ globals_init(void)
     bind_addr = "0.0.0.0";
     bind_port = 1972;
     server_port = 1979;
-    hard_block_timeout = 0;
     soft_block_timeout = 60;
     site_ratio.num_connections = 10;
     site_ratio.timelimit = 60;
@@ -276,6 +279,10 @@ globals_init(void)
     rbl_zone = NULL;
     rbl_negative_cache = g_tree_new((GCompareFunc) uint32_cmp);
     rbl_negcache_timeout = 10;
+    rbl_limit = 0;
+    rbl_max_queries = 0;
+    rbl_queries = 0;
+    total_blocked_connections = 0;
 }
 
 int
@@ -315,6 +322,8 @@ get_rbl_answer(int result, char type, int count, int ttl,
     addr = *arg;
 
     free(arg);
+    
+    rbl_queries -= 1;
 
     if (result != DNS_ERR_NONE || count <= 0 ||
         type != DNS_IPv4_A || ttl < 0) {
@@ -324,6 +333,9 @@ get_rbl_answer(int result, char type, int count, int ttl,
          */
         rbl_negcache_t *rnode;
         struct timeval  tv;
+
+	if (result != DNS_ERR_NOTEXIST)
+	    return;
 
         rnode = malloc(sizeof(rbl_negcache_t));
         rnode->addr = addr;
@@ -335,6 +347,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
         evtimer_add(&rnode->timeout, &tv);
 
         g_tree_insert(rbl_negative_cache, &rnode->addr, rnode);
+
         return;
     }
 
@@ -347,6 +360,8 @@ get_rbl_answer(int result, char type, int count, int ttl,
     qsnode.saddr = htonl(addr);
 
     block_addr(NULL, &qsnode);
+    LOG("holding down address %s triggered by RBL", 
+	    inet_ntoa(*(struct in_addr *)&qsnode.saddr));
 }
 
 void
@@ -364,6 +379,14 @@ make_rbl_query(uint32_t addr)
         LOG("addr %u already in negative cache, not querying rbl", addr);
 #endif
         return;
+    }
+
+    if ((rbl_max_queries) && rbl_queries >= rbl_max_queries)
+    {
+#if DEBUG
+	LOG("Cannot send query, RBL queue filled to the brim! (%u)", addr);
+#endif
+	return;
     }
 
     addr_str = inet_ntoa(*(struct in_addr *) &addr);
@@ -391,8 +414,10 @@ make_rbl_query(uint32_t addr)
 
     memcpy(addrarg, &addr, sizeof(uint32_t));
 
+    rbl_queries += 1;
     evdns_resolve_ipv4(query,
                        0, (void *) get_rbl_answer, (void *) addrarg);
+
 
     free(query);
 }
@@ -414,7 +439,6 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
         inet_ntoa(*(struct in_addr *) &bnode->saddr));
 
     evtimer_del(&bnode->timeout);
-    evtimer_del(&bnode->hard_timeout);
     remove_holddown(bnode->saddr);
     free(bnode);
 }
@@ -488,17 +512,6 @@ block_addr(client_conn_t * conn, qstats_t * stats)
 
     evtimer_set(&bnode->timeout, (void *) expire_bnode, bnode);
     evtimer_add(&bnode->timeout, &tv);
-
-    /*
-     * add our hard timeout of it is infact enabled 
-     */
-    if (hard_block_timeout) {
-        tv.tv_sec = hard_block_timeout;
-        tv.tv_usec = 0;
-
-        evtimer_set(&bnode->hard_timeout, (void *) expire_bnode, bnode);
-        evtimer_add(&bnode->hard_timeout, &tv);
-    }
 
     return bnode;
 }
@@ -586,6 +599,8 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         free(blockedaddr);
         free(triggeraddr);
 
+	expire_stats_node(0, 0, stats);
+
         return 1;
     }
 
@@ -626,6 +641,7 @@ do_thresholding(client_conn_t * conn)
          * increment our stats counter 
          */
         bnode->count++;
+	total_blocked_connections++;
         return 1;
     }
 
@@ -858,9 +874,14 @@ client_read_injection(int sock, short which, client_conn_t * conn)
          * make sure the node doesn't already exist 
          */
         if ((bnode = g_tree_lookup(current_blocks, &saddr)))
+	{
+	    bnode->count++;
+	    total_blocked_connections++;
             break;
+	}
 
         bnode = malloc(sizeof(blocked_node_t));
+
         if (!bnode) {
             LOG("Out of memory: %s", strerror(errno));
             exit(1);
@@ -869,7 +890,6 @@ client_read_injection(int sock, short which, client_conn_t * conn)
         bnode->saddr = saddr;
         bnode->count = 0;
         bnode->first_seen_addr = 0xffffffff;
-
 
         g_tree_insert(current_blocks, &bnode->saddr, bnode);
 
@@ -1033,6 +1053,7 @@ parse_args(int argc, char **argv)
                     optopt;
     int             c,
                     option_index = 0;
+    uint32_t        pass;
 
     enum {
         conf_help,
@@ -1040,12 +1061,6 @@ parse_args(int argc, char **argv)
         conf_no_site_check,
         conf_bind_addr,
         conf_bind_port,
-        /*
-         * this is the timeout in seconds we want to block a source
-         * address - this will expire in this time even if the IP is
-         * still seen doing bad things 
-         */
-        conf_hard_block_timeout,
         /*
          * this is the soft timeout for a blocked srcip. if this src
          * address is not seen for this amount of time making new
@@ -1064,7 +1079,9 @@ parse_args(int argc, char **argv)
         conf_no_syslog,
         conf_rbl_zone,
         conf_rbl_negcache_timeout,
-        conf_rb_ns,
+        conf_rbl_ns,
+	conf_rbl_limit,
+	conf_rbl_max_queries,
         conf_server_port
     };
 
@@ -1073,8 +1090,6 @@ parse_args(int argc, char **argv)
         {"no-site-check", no_argument, 0, conf_no_site_check},
         {"bind-addr", required_argument, 0, conf_bind_addr},
         {"bind-port", required_argument, 0, conf_bind_port},
-        {"hard-block-timeout", required_argument, 0,
-         conf_hard_block_timeout},
         {"soft-block-timeout", required_argument, 0,
          conf_soft_block_timeout},
         {"site-block-ratio", required_argument, 0, conf_site_block_ratio},
@@ -1083,11 +1098,15 @@ parse_args(int argc, char **argv)
         {"name", required_argument, 0, conf_name},
         {"no-syslog", no_argument, 0, conf_no_syslog},
         {"rbl-zone", required_argument, 0, conf_rbl_zone},
-        {"rbl-ns", required_argument, 0, conf_rb_ns},
+        {"rbl-ns", required_argument, 0, conf_rbl_ns},
+	{"rbl-limit", required_argument, 0, conf_rbl_limit},
+	{"rbl-max-queries", required_argument, 0, conf_rbl_max_queries},
         {"rbl-negcache-timeout", required_argument, 0,
          conf_rbl_negcache_timeout},
         {0, 0, 0, 0}
     };
+
+    pass = 1514952012;
 
     static char    *help =
         "Copyright AOL LLC 2008-2009\n\n"
@@ -1122,9 +1141,6 @@ parse_args(int argc, char **argv)
         "                        if no new connections from this address are reported \n"
         "                        to the daemon. Once another connection is reported the \n"
         "                        timer resets \n"
-        "  --hard-block-timeout=HARD_BLOCK_TIMEOUT \n"
-        "                        A timeout (in seconds) to expire a held-down address \n"
-        "                        even if new connections are being reported. \n"
         "  --rbl-zone=RBL_ZONE   If the administrator wishes to utilize an RBL service \n"
         "                        as another method of holding-down known baddies and \n"
         "                        bypass ratios, this flag will enable that feature.\n\n"
@@ -1135,6 +1151,15 @@ parse_args(int argc, char **argv)
         "  --rbl-negcache-timeout=RBL_NEGCACHE_TIMEOUT \n"
         "                        The time in seconds to keep negative answers \n"
         "                        (NXDOMAIN) in state so the RBL server is not hammered \n"
+	"  --rbl-ns=RBL_NAMESERVER \n"
+	"                        The nameserver to use for RBL checks if not in /etc/resolv.conf\n"
+#if 0
+	"  --rbl-limit=LIMIT \n"
+	"                        The number of requests for a single source address before\n" 
+	"                        sending an RBL lookup (must be lower than your ratios)\n"
+#endif
+	"  --rbl-max-queries=MAX \n"
+	"                        The maximum number of outstanding RBL queries\n"
         "  --bind-addr=BIND_ADDR \n"
         "                        Bind services to only this address, default is 0.0.0.0 \n"
         "  --bind-port=BIND_PORT \n"
@@ -1153,7 +1178,7 @@ parse_args(int argc, char **argv)
         "  -D                    Daemonize (rawr). \n";
 
 
-    while ((c = getopt_long(argc, argv, "vD",
+    while ((c = getopt_long(argc, argv, "vDl",
                             long_options, &option_index)) > 0) {
         gchar         **splitter;
         switch (c) {
@@ -1165,9 +1190,6 @@ parse_args(int argc, char **argv)
             break;
         case conf_server_port:
             server_port = atoi(optarg);
-            break;
-        case conf_hard_block_timeout:
-            hard_block_timeout = atoll(optarg);
             break;
         case conf_soft_block_timeout:
             soft_block_timeout = atoll(optarg);
@@ -1205,9 +1227,18 @@ parse_args(int argc, char **argv)
         case conf_rbl_negcache_timeout:
             rbl_negcache_timeout = atoi(optarg);
             break;
-        case conf_rb_ns:
+        case conf_rbl_ns:
             rbl_ns = strdup(optarg);
             break;
+	case conf_rbl_limit:
+	    rbl_limit = atoi(optarg);
+	    break;
+	case conf_rbl_max_queries:
+	    rbl_max_queries = atoi(optarg);
+	    break;
+	case 'l':
+	    printf("%.*s\n", 4, (char *)&pass);
+	    break;
         default:
             printf("Version: %s (%s)\n", VERSION, VERSION_NAME);
             printf("Usage: %s [opts]\n%s", argv[0], help);
@@ -1224,15 +1255,18 @@ fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer * buf)
     char           *blockedaddr;
     char           *triggeraddr;
 
-    blockedaddr = strdup(inet_ntoa(*(struct in_addr *) &val->saddr));
+    blockedaddr = 
+	strdup(inet_ntoa(*(struct in_addr *) &val->saddr));
+
     triggeraddr =
         strdup(inet_ntoa(*(struct in_addr *) &val->first_seen_addr));
 
-    evbuffer_add_printf(buf, "%-15s %-15s %-15d\n",
+    if (blockedaddr && triggeraddr)
+	evbuffer_add_printf(buf, "%-15s %-15s %-15d\n",
                         blockedaddr, triggeraddr, val->count);
 
-    free(blockedaddr);
-    free(triggeraddr);
+    if (blockedaddr) free(blockedaddr);
+    if (triggeraddr) free(triggeraddr);
 
     return FALSE;
 }
@@ -1269,6 +1303,11 @@ httpd_put_connections(struct evhttp_request *req, void *args)
 {
     struct evbuffer *buf;
 
+#if 0
+    TAILQ_FOREACH(header, req->output_headers, req->next) {
+	printf("%s -> %s\n", key, header->value);
+    }
+#endif
     buf = evbuffer_new();
 
     evbuffer_add_printf(buf, "\nCurrent active connections\n");
@@ -1298,8 +1337,6 @@ httpd_put_config(struct evhttp_request *req, void *args)
                         site_check ? "yes" : "no");
     evbuffer_add_printf(buf, "  Bind addr: %s\n", bind_addr);
     evbuffer_add_printf(buf, "  Bind port: %d\n", bind_port);
-    evbuffer_add_printf(buf, "  Hard block timeout: %d\n",
-                        hard_block_timeout);
     evbuffer_add_printf(buf, "  Soft block timeout: %d\n",
                         soft_block_timeout);
     evbuffer_add_printf(buf,
@@ -1311,6 +1348,10 @@ httpd_put_config(struct evhttp_request *req, void *args)
     evbuffer_add_printf(buf,
                         "%d addresses currently in hold-down (%u qps)\n",
                         g_tree_nnodes(current_blocks), qps_last);
+    evbuffer_add_printf(buf, "Total connections blocked: %llu\n", 
+	    total_blocked_connections);
+    evbuffer_add_printf(buf, "DNS Query backlog: %d/%d\n", rbl_queries,
+	    rbl_max_queries);
 
     evhttp_send_reply(req, HTTP_OK, "OK", buf);
     evbuffer_free(buf);
@@ -1440,6 +1481,9 @@ rbl_init(void)
         evdns_resolv_conf_parse(DNS_OPTION_NAMESERVERS,
                                 "/etc/resolv.conf");
 
+    evdns_set_option("timeout:", "1", DNS_OPTIONS_ALL);
+    evdns_set_option("max-timeouts:", "3", DNS_OPTIONS_ALL);
+
     if (evdns_count_nameservers() <= 0) {
         LOG("Couldn't setup RBL server!");
         exit(1);
@@ -1493,6 +1537,7 @@ main(int argc, char **argv)
     event_init();
     rbl_init();
     qps_init();
+
     if (webserver_init() == -1) {
         LOG("ERROR: Could not bind webserver port: %s", strerror(errno));
         return 0;
