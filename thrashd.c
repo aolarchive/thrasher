@@ -308,10 +308,12 @@ expire_rbl_negcache(int sock, short which, rbl_negcache_t * rnode)
 
 void
 get_rbl_answer(int result, char type, int count, int ttl,
-               void *addresses, uint32_t * arg)
+               struct in_addr *addresses, uint32_t * arg)
 {
     uint32_t        addr;
     qstats_t        qsnode;
+    client_conn_t   cconn;
+    struct in_addr  *in_addrs;
 #ifdef DEBUG
     LOG("Got an answer for address %u", arg ? *arg : 0);
 #endif
@@ -359,7 +361,14 @@ get_rbl_answer(int result, char type, int count, int ttl,
 #endif
     qsnode.saddr = htonl(addr);
 
-    block_addr(NULL, &qsnode);
+    if(in_addrs)
+    {
+	cconn.conn_addr = (uint32_t)in_addrs[0].s_addr; 
+	block_addr(&cconn, &qsnode);
+    }
+    else
+	block_addr(NULL, &qsnode);
+
     LOG("holding down address %s triggered by RBL", 
 	    inet_ntoa(*(struct in_addr *)&qsnode.saddr));
 }
@@ -441,12 +450,6 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
     evtimer_del(&bnode->timeout);
     remove_holddown(bnode->saddr);
     free(bnode);
-}
-
-void
-inject_bnode(void)
-{
-    return;
 }
 
 void
@@ -678,12 +681,12 @@ do_thresholding(client_conn_t * conn)
              conn->query.host);
 
     do {
-        if (update_thresholds(conn, ukey, stat_type_uri)) {
+        if (uri_check && update_thresholds(conn, ukey, stat_type_uri)) {
             blocked = 1;
             break;
         }
 
-        if (update_thresholds(conn, hkey, stat_type_host)) {
+        if (site_check && update_thresholds(conn, hkey, stat_type_host)) {
             blocked = 1;
             break;
         }
