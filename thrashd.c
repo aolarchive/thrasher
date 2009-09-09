@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <errno.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+//#include <sys/types.h>
+//#include <sys/stat.h>
 #include <fcntl.h>
 #include <string.h>
 #include <stdlib.h>
@@ -13,7 +13,8 @@
 #include <getopt.h>
 #include <assert.h>
 #include <errno.h>
-#include <sys/resource.h>
+//#include <sys/resource.h>
+
 #include <sys/sysinfo.h>
 #define __FAVOR_BSD
 #include <sys/socket.h>
