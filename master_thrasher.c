@@ -86,8 +86,9 @@ thrashd_thrasher(void)
     uint32_t start = 1;
     uint32_t end   = test_number;
     uint32_t i;
-   for (i = start; i < end; i++)
-   {
+   
+    for (i = start; i < end; i++)
+    {
        uint8_t type = 0;
        uint32_t src_ip = i;
        uint16_t uri_len = htons(2);
@@ -113,8 +114,7 @@ thrashd_thrasher(void)
 
        if (i % 1000 == 0)
 	   printf("%d\n", i);
-
-   }
+    }
 
    close(sock);
 }
