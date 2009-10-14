@@ -852,6 +852,9 @@ client_read_type(int sock, short which, client_conn_t * conn)
         break;
     case TYPE_THRESHOLD_v2:
 	/* thresholding for IP analysis only */
+	event_set(&conn->event, sock, EV_READ,
+		(void *) client_read_v2_header, conn);
+	event_add(&conn->event, 0);
 	break;
     case TYPE_REMOVE:
     case TYPE_INJECT:
