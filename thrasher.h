@@ -53,19 +53,21 @@ typedef enum {
 /***************************************
  * Client structures                   *
  **************************************/
-typedef struct thrash_cfg {
-		uint8_t  pkt_type;
-    char    *thrashd_addr; 
-		uint16_t thrashd_port;
-} thrash_clicfg_t;
+typedef struct thrash_client {
+    char              *host;
+    uint16_t           port;
+    int                sock;
+    thrash_pkt_type    type;
+    iov_t              data;
+    uint32_t           addr_lookup;
+#ifndef DISABLE_EVENT
+    struct event_base *evbase;
+    struct event       event;
+#endif
+    void (*resp_cb) (struct thrash_client *cli, uint8_t resp);
+} thrash_client_t;
 
-typedef struct thrash_clisock {
-		thrash_clicfg_t *cfg;
-		int                  sock;
-		uint8_t              connected;
-		iov_t               *iov_data;
-		void                *args;
-} thrash_clisock_t;
+typedef struct query client_query_t;
 
 /***************************************
  * Server structures                   *
@@ -132,15 +134,17 @@ typedef enum {
 /***************************************
  * Client functions                    *
  ***************************************/
-thrash_clicfg_t  *cli_cfg_init(void);
-thrash_clisock_t *cli_sock_init(void);
-int  clicfg_reset(thrash_clicfg_t *cfg);
-void clicfg_set_type(thrash_clicfg_t *cfg, thrash_pkt_type type); 
-void clicfg_set_addr(thrash_clicfg_t *cfg, char *addr);
-void clicfg_set_port(thrash_clicfg_t *cfg, uint16_t port);
-int  clisock_reset(thrash_clisock_t *sock);
-int  cliconnect(thrash_clisock_t *sock);
-int  clidisconnect(thrash_clisock_t *sock);
+#define thrash_client_sethost(a,b) do { a->host = strdup(b); } while(0);
+#define thrash_client_setport(a,b) do { a->port = b; } while(0);
+#define thrash_client_settype(a,b) do { a->type = b; } while(0);
+#define thrash_client_setsock(a,b) do { a->sock = b; } while(0);
+#define thrash_client_setevbase(a,b) do { a->evbase = b; \
+    event_base_set(b, &a->event); } while(0);
+thrash_client_t * init_thrash_client(void);
+int thrash_client_connect(thrash_client_t *cli);
+void thrash_client_read_resp(int sock, short which, thrash_client_t *cli);
+void thrash_client_write(int sock, short which, thrash_client_t *cli);
+void thrash_client_lookup(thrash_client_t *cli, uint32_t addr, void *data);
 
 /***************************************
  * Server functions                    *

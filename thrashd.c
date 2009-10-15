@@ -366,6 +366,7 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
     case stat_type_address:
 	table = addr_table;
 	ratio = &addr_ratio;
+	break;
     default:
         return 0;
     }
@@ -526,8 +527,12 @@ do_thresholding(client_conn_t * conn)
 	    break;
 	case TYPE_THRESHOLD_v2:
 	    /* with v2 we only care about the source-address */
+
 	    if (addr_check <= 0)
+	    {
+		printf("FUCK %d\n", addr_check); 
 		break;
+	    }
 
 	    hkeylen = 13;
 
@@ -537,7 +542,7 @@ do_thresholding(client_conn_t * conn)
 		exit(1);
 	    }
 
-	    snprintf(ukey, hkeylen - 1, "%u", conn->query.saddr);
+	    snprintf(hkey, hkeylen - 1, "%u", conn->query.saddr);
 
 	    if (update_thresholds(conn, hkey, stat_type_address))
 		blocked = 1;
@@ -677,6 +682,7 @@ client_read_v2_header(int sock, short which, client_conn_t * conn)
     }
 
     memcpy(&saddr, conn->data.buf, sizeof(uint32_t));
+    conn->query.saddr = saddr;
     reset_iov(&conn->data);
 
     /* v2 allows us to just recv a source address,
