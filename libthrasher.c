@@ -234,7 +234,6 @@ main(int argc, char **argv)
 	/* create 10 concurrent connections. */
 	thrash_client_t *lc;
 
-	/*
 	lc          = init_thrash_client();
 	lc->evbase  = evbase;
 	lc->resp_cb = resp_callback;
@@ -243,7 +242,6 @@ main(int argc, char **argv)
 	thrash_client_settype(lc, TYPE_THRESHOLD_v2);
 	thrash_client_connect(lc);
 	thrash_client_lookup(lc, i, NULL);
-	*/
 
 	/* create a v1 query */
 	client_query_t *query;
