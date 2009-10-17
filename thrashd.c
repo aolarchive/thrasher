@@ -23,7 +23,6 @@ static int      rundaemon;
 static int      syslog_enabled;
 static char    *rbl_zone;
 static char    *rbl_ns;
-static int      rbl_limit;
 static int      rbl_max_queries;
 static int      rbl_queries;
 static uint32_t rbl_negcache_timeout;
@@ -36,6 +35,7 @@ GHashTable     *addr_table;
 GTree          *rbl_negative_cache;
 GHashTable     *uri_states;
 GHashTable     *host_states;
+GKeyFile       *config_file;
 
 void
 reset_query(query_t * query)
@@ -105,10 +105,10 @@ globals_init(void)
     rbl_zone                   = NULL;
     rbl_negative_cache         = g_tree_new((GCompareFunc) uint32_cmp);
     rbl_negcache_timeout       = 10;
-    rbl_limit                  = 0;
     rbl_max_queries            = 0;
     rbl_queries                = 0;
     total_blocked_connections  = 0;
+    config_file                = NULL;
 }
 
 int
@@ -961,6 +961,99 @@ server_init(void)
     return 0;
 }
 
+void
+load_config(const char *file)
+{
+    GKeyFileFlags flags;
+    int i;
+    GError *error = NULL;
+
+    typedef enum {
+	_c_f_t_str = 1,
+	_c_f_t_int,
+	_c_f_t_ratio
+    } _c_f_t;
+
+    struct _c_f_in {
+	char *parent;
+	char *key;
+	_c_f_t type;
+	void *var;
+    } c_f_in[] = {
+	{ "thrashd", "name",             _c_f_t_str,   &process_name },
+	{ "thrashd", "uri-check",        _c_f_t_int,   &uri_check   },
+	{ "thrashd", "host-check",       _c_f_t_int,   &site_check  },
+	{ "thrashd", "addr-check",       _c_f_t_int,   &addr_check  },
+	{ "thrashd", "http-listen-port", _c_f_t_int,   &server_port },
+	{ "thrashd", "listen-port",      _c_f_t_int,   &bind_port   },
+	{ "thrashd", "listen-addr",      _c_f_t_str,   &bind_addr   },
+	{ "thrashd", "block-timeout",    _c_f_t_int,   &soft_block_timeout },
+	{ "thrashd", "uri-ratio",        _c_f_t_ratio, &uri_ratio  },
+	{ "thrashd", "host-ratio",       _c_f_t_ratio, &site_ratio },
+	{ "thrashd", "addr-ratio",       _c_f_t_ratio, &addr_ratio },
+	{ "thrashd", "daemonize",        _c_f_t_int,   &rundaemon  },
+	{ "thrashd", "syslog",           _c_f_t_int,   &syslog_enabled },
+	{ "thrashd", "rbl-zone",         _c_f_t_str,   &rbl_zone },
+	{ "thrashd", 
+	    "rbl-negative-cache-timeout", _c_f_t_int, 
+	    &rbl_negcache_timeout },
+	{ "thrashd", "rbl-nameserver",    _c_f_t_str,  &rbl_ns },
+	{ "thrashd", "rbl-max-query",     _c_f_t_int,  &rbl_max_queries },
+	{ NULL, NULL, 0, NULL }
+    };
+
+    config_file = g_key_file_new();
+    flags = G_KEY_FILE_KEEP_COMMENTS;
+
+    if (!g_key_file_load_from_file(config_file, 
+		file, flags, &error))
+	return;
+
+    for (i = 0; c_f_in[i].parent != NULL; i++)
+    {
+	char **svar;
+	char  *str;
+	int   *ivar;
+	block_ratio_t *ratio;
+	gchar **splitter;
+
+	if(!g_key_file_has_key(config_file,
+		    c_f_in[i].parent, 
+		    c_f_in[i].key,
+		    &error))
+	    continue;
+
+	switch(c_f_in[i].type)
+	{
+	    case _c_f_t_str:
+	        svar = (char **)c_f_in[i].var;
+		*svar = g_key_file_get_string(
+			config_file,
+			c_f_in[i].parent, 
+			c_f_in[i].key, NULL);
+		break;
+	    case _c_f_t_int:
+		ivar = (int *)c_f_in[i].var;
+		*ivar = g_key_file_get_integer(
+			config_file, 
+			c_f_in[i].parent,
+			c_f_in[i].key, NULL);
+		break;
+	    case _c_f_t_ratio:
+		ratio = (block_ratio_t *)c_f_in[i].var;
+		str = g_key_file_get_string(
+			config_file,
+			c_f_in[i].parent,
+			c_f_in[i].key, NULL);
+		splitter = g_strsplit(str, ":", 2);
+		ratio->num_connections = atoll(splitter[0]);
+		ratio->timelimit       = atoll(splitter[1]);
+		g_strfreev(splitter);
+		break;
+	}
+    }
+}
+
 int
 parse_args(int argc, char **argv)
 {
@@ -997,7 +1090,6 @@ parse_args(int argc, char **argv)
         conf_rbl_zone,
         conf_rbl_negcache_timeout,
         conf_rbl_ns,
-	conf_rbl_limit,
 	conf_rbl_max_queries,
         conf_server_port,
 	conf_no_addr_check,
@@ -1020,7 +1112,6 @@ parse_args(int argc, char **argv)
         {"no-syslog", no_argument, 0, conf_no_syslog},
         {"rbl-zone", required_argument, 0, conf_rbl_zone},
         {"rbl-ns", required_argument, 0, conf_rbl_ns},
-	{"rbl-limit", required_argument, 0, conf_rbl_limit},
 	{"rbl-max-queries", required_argument, 0, conf_rbl_max_queries},
         {"rbl-negcache-timeout", required_argument, 0,
          conf_rbl_negcache_timeout},
@@ -1039,6 +1130,7 @@ parse_args(int argc, char **argv)
         "applications can use.\n\n"
         "options:\n"
         "  -h, --help            show this help message and exit\n\n"
+	"  -c <CONFIG>           Thrasher configuration file\n\n"
         "  -U, --no-uri-check    If the administrator wishes to not threshold \n"
         "                        connections via the http URI being fetched by a \n"
         "                        client; you may use this flag to disable it.\n\n"
@@ -1083,11 +1175,6 @@ parse_args(int argc, char **argv)
         "                        (NXDOMAIN) in state so the RBL server is not hammered \n\n"
 	"  -R, --rbl-ns=RBL_NAMESERVER \n"
 	"                        The nameserver to use for RBL checks if not in /etc/resolv.conf\n\n"
-#if 0
-	"  --rbl-limit=LIMIT \n"
-	"                        The number of requests for a single source address before\n" 
-	"                        sending an RBL lookup (must be lower than your ratios)\n\n"
-#endif
 	"  -l, --rbl-max-queries=MAX \n"
 	"                        The maximum number of outstanding RBL queries\n\n"
         "  -b, --bind-addr=BIND_ADDR \n"
@@ -1108,10 +1195,13 @@ parse_args(int argc, char **argv)
         "  -D                    Daemonize (rawr). \n";
 
 
-    while ((c = getopt_long(argc, argv, "vDl:USAb:p:P:t:x:y:z:n:Lr:R:l:N:",
+    while ((c = getopt_long(argc, argv, "vDl:USAb:p:P:t:x:y:z:n:Lr:R:l:N:c:",
                             long_options, &option_index)) > 0) {
         gchar         **splitter;
         switch (c) {
+        case 'c':
+	    load_config(optarg);
+	    break;
 	case 'U':
         case conf_no_uri_check:
             uri_check = 0;
@@ -1184,9 +1274,6 @@ parse_args(int argc, char **argv)
         case conf_rbl_ns:
             rbl_ns = strdup(optarg);
             break;
-	case conf_rbl_limit:
-	    rbl_limit = atoi(optarg);
-	    break;
 	case 'l':
 	case conf_rbl_max_queries:
 	    rbl_max_queries = atoi(optarg);
@@ -1369,8 +1456,7 @@ static struct dsn_c_pvt_sfnt {
     int             val;
     const char     *strval;
 } facilities[] = {
-    {
-    LOG_KERN, "kern"}, {
+    { LOG_KERN, "kern"}, {
     LOG_USER, "user"}, {
     LOG_MAIL, "mail"}, {
     LOG_DAEMON, "daemon"}, {
@@ -1486,6 +1572,62 @@ daemonize(const char *path)
     }
 }
 
+void 
+log_startup(void)
+{
+    LOG("Name:             %s", process_name);
+
+    if (uri_check)
+    {
+	LOG("URI Block Ratio:  %u connections within %u seconds",
+		uri_ratio.num_connections, uri_ratio.timelimit);
+    }
+    else
+    {
+	LOG("URI Block:        DISABLED");
+    }
+
+    if (site_check)
+    {
+	LOG("Host Block Ratio: %u connections within %u seconds",
+		site_ratio.num_connections, site_ratio.timelimit);
+    }
+    else
+    {
+	LOG("Host Block:       DISABLED");
+    }
+
+    if (addr_check)
+    {
+	LOG("Addr Block Ratio: %u connections within %u seconds",
+		addr_ratio.num_connections, addr_ratio.timelimit);
+    }
+    else
+    {
+	LOG("Host Block:       DISABLED");
+    }
+
+    LOG("HTTP Listen Port: %d", server_port);
+    LOG("Bind addr:        %s", bind_addr);
+    LOG("Listen Port:      %d", bind_port);
+    LOG("Block Timeout:    %d", soft_block_timeout);
+
+    if (rbl_zone)
+    {
+	LOG("RBL:                  ENABLED"); 
+	LOG("RBL Zone:             %s", rbl_zone);
+	LOG("RBL Nameserver:       %s", rbl_ns);
+	LOG("RBL Negative Timeout: %d", rbl_negcache_timeout); 
+	LOG("RBL Max Queries:      %d", rbl_max_queries);
+    }
+    else 
+    {
+	LOG("RBL:              DISABLED"); 
+    }
+
+
+} 
+
 int
 main(int argc, char **argv)
 {
@@ -1506,17 +1648,7 @@ main(int argc, char **argv)
     }
     syslog_init("local6");
 
-    LOG("Daemon starting...");
-    LOG("URI Block Ratio: %d:%d Enabled? %s",
-        uri_ratio.num_connections, uri_ratio.timelimit,
-	uri_check?"yes":"no");
-    LOG("HOST Block Ratio: %d:%d Enabled? %s",
-        site_ratio.num_connections, site_ratio.timelimit,
-	site_check?"yes":"no");
-    LOG("v2 ADDR Block Ratio: %d:%d Enabled? %s",
-	    addr_ratio.num_connections, addr_ratio.timelimit,
-	    addr_check?"yes":"no");
-
+    log_startup();
 
     if (rundaemon)
         daemonize("/tmp");
