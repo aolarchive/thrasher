@@ -117,37 +117,71 @@ thrash_client_write(int sock, short which, thrash_client_t *cli)
     event_add(&cli->event, 0);
 }
 
+client_query_t *create_v1_query(const char *host, const char *uri)
+{
+    client_query_t *query;
+
+    query = malloc(sizeof(*query));
+
+    if (!query)
+	return NULL;
+
+    query->host     = NULL;
+    query->host_len = 0;
+    query->uri      = NULL;
+    query->uri_len  = 0;
+
+    if (host)
+    {
+	query->host = strdup(host);
+	query->host_len = strlen(host);
+    }
+    if (uri)
+    {
+	query->uri = strdup(uri);
+	query->uri_len = strlen(uri);
+    }
+
+    return query;
+}
+
 void 
 thrash_client_lookup(thrash_client_t *cli, 
 	uint32_t addr, void *data)
 {
     client_query_t *q;
+    uint16_t hlen, ulen;
+
+    q = (client_query_t *)data; 
 
     if (!cli)
 	return;
 
     switch(cli->type)
     {
+
 	case TYPE_THRESHOLD_v1:
 	    /* data will be a client_query_t */
-	    q = (client_query_t *)data;
-	    initialize_iov(&cli->data,
-		    sizeof(q->saddr) +
-		    sizeof(q->host_len) +
+	    if (!q)
+		return;
+
+	    hlen = htons(q->host_len);
+	    ulen = htons(q->uri_len);
+
+	    initialize_iov(
+		    &cli->data,
+		    sizeof(uint32_t) +
+		    sizeof(uint16_t) +
+		    sizeof(uint16_t) + 
 		    q->host_len + q->uri_len + 1);
 
 	    memcpy(cli->data.buf, &cli->type, 1);
-	    memcpy(&cli->data.buf[1], &addr, 
-		    sizeof(uint32_t));
-	    memcpy(&cli->data.buf[5], &q->host_len, 
-		    sizeof(uint16_t));
-	    memcpy(&cli->data.buf[7], &q->uri_len,
-		    sizeof(uint16_t));
-	    memcpy(&cli->data.buf[9], q->host, 
-		    q->host_len);
-	    memcpy(&cli->data.buf[9+q->host_len],
-		   q->uri, q->uri_len); 
-
+	    memcpy(&cli->data.buf[1], &addr, sizeof(uint32_t));
+	    memcpy(&cli->data.buf[5], &hlen, sizeof(uint16_t));
+	    memcpy(&cli->data.buf[7], &ulen, sizeof(uint16_t));
+	    memcpy(&cli->data.buf[9], q->host, q->host_len);
+	    memcpy(&cli->data.buf[9 + q->host_len], 
+		    q->uri, q->uri_len); 
 	    break;
 	case TYPE_THRESHOLD_v2:
 	    /* [uint8_t type][uint32_t addr] */
@@ -165,6 +199,17 @@ thrash_client_lookup(thrash_client_t *cli,
 }
 
 void
+free_thrash_client(thrash_client_t *cli)
+{
+    if (!cli)
+	return;
+
+    close(cli->sock);
+    reset_iov(&cli->data);
+    free(cli);
+}
+
+void
 resp_callback(thrash_client_t *cli, uint8_t resp)
 {
     if(resp)
@@ -172,6 +217,7 @@ resp_callback(thrash_client_t *cli, uint8_t resp)
     else
 	printf("%u is not blocked\n", cli->addr_lookup);
 
+    free_thrash_client(cli);
     return;
 }
 
@@ -185,8 +231,10 @@ main(int argc, char **argv)
 
     for (i = 0; i <= 10; i++)
     {
+	/* create 10 concurrent connections. */
 	thrash_client_t *lc;
 
+	/*
 	lc          = init_thrash_client();
 	lc->evbase  = evbase;
 	lc->resp_cb = resp_callback;
@@ -195,7 +243,23 @@ main(int argc, char **argv)
 	thrash_client_settype(lc, TYPE_THRESHOLD_v2);
 	thrash_client_connect(lc);
 	thrash_client_lookup(lc, i, NULL);
+	*/
+
+	/* create a v1 query */
+	client_query_t *query;
+
+	query = create_v1_query("abc", "/");
+	lc = init_thrash_client();
+	lc->evbase = evbase;
+	lc->resp_cb = resp_callback;
+
+	thrash_client_sethost(lc, "127.0.0.1");
+	thrash_client_settype(lc, TYPE_THRESHOLD_v1);
+	thrash_client_connect(lc);
+	thrash_client_lookup(lc, i, (void *)query);
     }
+
+
 
     event_base_loop(evbase, 0);
 

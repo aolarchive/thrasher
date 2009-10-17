@@ -605,6 +605,10 @@ client_read_payload(int sock, short which, client_conn_t * conn)
 {
     int             ioret;
 
+#if DEBUG
+    LOG("%d %d", conn->query.uri_len, conn->query.host_len);
+#endif
+
     if (!conn->data.buf)
         initialize_iov(&conn->data,
                        conn->query.uri_len + conn->query.host_len);
@@ -725,6 +729,10 @@ client_read_v1_header(int sock, short which, client_conn_t * conn)
 
     urilen = ntohs(urilen);
     hostlen = ntohs(hostlen);
+
+#ifdef DEBUG
+    LOG("ulen %d hlen %d", urilen, hostlen);
+#endif
 
     if (urilen > MAX_URI_SIZE || hostlen > MAX_HOST_SIZE ||
         urilen <= 0 || hostlen <= 0) {
