@@ -15,4 +15,4 @@ else:
 env.Append(LIBS=['event'])
 env.Object('libthrasher', ['libthrasher.c'])
 env.Program('thrashd', ['iov.c', 'thrashd.c'])
-env.Program('master_thrasher', ['libthrasher.c', 'iov.c','master_thrasher2.c'])
+env.Program('master_thrasher', ['libthrasher.c', 'iov.c', 'master_thrasher.c'])

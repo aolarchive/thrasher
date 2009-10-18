@@ -13,161 +13,102 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include "thrasher.h"
 
-
-/*
- * inject or remove 
- */
-static uint8_t  mode = 2;
-static unsigned int test_number = 0;
-static char    *thrashd_addr = "127.0.0.1";
-static int      thrashd_port = 1972;
-static char    *inject_addr = NULL;
-static int      sleeper = 0;
+static thrash_pkt_type pkt_type;
+static char *thrashd_host;
+static int   thrashd_port;
 
 void
+globals_init(void)
+{
+    pkt_type = TYPE_INJECT;
+    thrashd_host = "127.0.0.1";
+    thrashd_port = 1972;
+}
+
+static char help[] = 
+	" -i: INJECT Addr\n"
+	" -r: REMOVE Addr\n"
+	" -s <thrashd addr>\n"
+	" -p <thrashd port>\n";
+
+int 
 parse_args(int argc, char **argv)
 {
-    int             c;
+    int c;
+    int jmp = 1;
 
-    while ((c = getopt(argc, argv, "hirs:p:a:t:u:")) != -1) {
-        switch (c) {
-        case 'i':
-            mode = 2;
-            break;
-        case 'r':
-            mode = 1;
-            break;
-        case 's':
-            thrashd_addr = optarg;
-            break;
-        case 'p':
-            thrashd_port = atoi(optarg);
-            break;
-        case 'a':
-            inject_addr = optarg;
-            break;
-	case 't':
-	    mode = 0;
-	    test_number = atoi(optarg);
-	    break;
-	case 'u':
-	    sleeper = atoi(optarg);
-	    break;
-
-        case 'h':
-            printf("Usage: %s [opts]\n", argv[0]);
-            printf(" -i: set mode to injection\n"
-                   " -r: set mode to remove\n"
-                   " -s <thrashd addr>\n"
-                   " -p <thrashd port>\n"
-                   " -a <address to inject/remove\n");
-            exit(1);
-        }
-    }
-}
-
-
-void
-thrashd_thrasher(void)
-{
-    struct sockaddr_in inaddr;
-    uint32_t addr;
-    int sock;
-    
-    addr = inet_addr(thrashd_addr);
-    inaddr.sin_family = AF_INET;
-    inaddr.sin_addr.s_addr = addr;
-    inaddr.sin_port = htons(thrashd_port);
-    sock = socket(PF_INET, SOCK_STREAM, 0);
-    connect(sock, (struct sockaddr *)&inaddr, sizeof(inaddr));
-
-    
-    uint32_t start = 1;
-    uint32_t end   = test_number;
-    uint32_t i;
-   
-    for (i = start; i < end; i++)
+    while((c = getopt(argc, argv, "irs:p:h")) != -1)
     {
-       uint8_t type = 0;
-       uint32_t src_ip = i;
-       uint16_t uri_len = htons(2);
-       uint16_t host_len = htons(2);
-       uint8_t  ret;
-       struct iovec vec[6];
-
-       vec[0].iov_base = &type;
-       vec[0].iov_len = 1; 
-       vec[1].iov_base = &src_ip;
-       vec[1].iov_len = sizeof(uint32_t);
-       vec[2].iov_base = &uri_len;
-       vec[2].iov_len = sizeof(uint16_t);
-       vec[3].iov_base = &host_len;
-       vec[3].iov_len = sizeof(uint16_t);
-       vec[4].iov_base = "##"; 
-       vec[4].iov_len = 2; 
-       vec[5].iov_base = "##"; 
-       vec[5].iov_len = 2; 
-
-       writev(sock, vec, 6);
-       recv(sock, &ret, 1, 0);
-
-       if (i % 1000 == 0)
-	   printf("%d\n", i);
+	switch(c) 
+	{
+	    case 'i':
+		pkt_type = TYPE_INJECT;
+		jmp++;
+		break;
+	    case 'r':
+		pkt_type = TYPE_REMOVE;
+		jmp++;
+		break;
+	    case 's':
+		thrashd_host = optarg;
+		jmp += 2;
+		break;
+	    case 'p':
+		jmp += 2;
+		thrashd_port = atoi(optarg);
+		break;
+	    case 'h':
+		printf("Usage %s [opts] <addr1> <addr2> ...\n%s",
+			argv[0], help);
+		exit(1);
+	}
     }
 
-   close(sock);
+    return jmp;
 }
-    
+
 void
-thrashd_injector(uint32_t inject_addr)
+resp_callback(thrash_client_t *cli, uint8_t resp)
 {
-    int             sock;
-    uint32_t addr;
-    struct sockaddr_in inaddr;
-    struct iovec    vec[4];
-
-    if ((addr = inet_addr(thrashd_addr)) < 0) {
-        fprintf(stderr, "%s is not a valid thrashd addr\n", thrashd_addr);
-        exit(1);
-    }
-
-    inaddr.sin_family = AF_INET;
-    inaddr.sin_addr.s_addr = addr;
-    inaddr.sin_port = htons(thrashd_port);
-
-    if ((sock = socket(PF_INET, SOCK_STREAM, 0)) <= 0) {
-        fprintf(stderr, "Error opening socket: %s\n", strerror(errno));
-        exit(1);
-    }
-
-    if (connect(sock, (struct sockaddr *) &inaddr, sizeof(inaddr)) < 0) {
-        fprintf(stderr, "Error connecting to host: %s\n", strerror(errno));
-        exit(1);
-    }
-
-    vec[0].iov_base = &mode;
-    vec[0].iov_len = sizeof(uint8_t);
-    vec[1].iov_base = &inject_addr;
-    vec[1].iov_len = sizeof(uint32_t);
-    writev(sock, vec, 2);
-
-    close(sock);
+    printf("Done!\n");
 }
 
-int
-main(int argc, char **argv)
+int main (int argc, char **argv)
 {
-    if (argc < 2) {
-        fprintf(stderr, "try -h, buddy\n");
-        exit(1);
+    int ret, i;
+    struct event_base *base;
+
+    globals_init();
+    ret = parse_args( argc, argv );
+
+    argv += ret;
+    argc -= ret;
+
+    if (!argc)
+    {
+	printf("%s\n", help);
+	exit(1);
     }
-    parse_args(argc, argv);
 
-    if (test_number)
-	thrashd_thrasher();
-    else
-	thrashd_injector(inet_addr(inject_addr));
+    base = event_init();
 
+    for (i = 0; i < argc; i++)
+    {
+	thrash_client_t *lc;
+	printf("Doing %s\n", argv[i]);
+
+	lc = init_thrash_client();
+	lc->evbase  = base; 
+	lc->resp_cb = resp_callback;
+	lc->port = thrashd_port;
+	thrash_client_sethost(lc, thrashd_host);
+	thrash_client_settype(lc, pkt_type);
+	thrash_client_connect(lc);
+	thrash_client_lookup(lc, inet_addr(argv[i]), NULL);
+    }
+	
+    event_base_loop(base, 0);
     return 0;
 }

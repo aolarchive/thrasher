@@ -183,6 +183,8 @@ thrash_client_lookup(thrash_client_t *cli,
 	    memcpy(&cli->data.buf[9 + q->host_len], 
 		    q->uri, q->uri_len); 
 	    break;
+	case TYPE_REMOVE:
+	case TYPE_INJECT: 
 	case TYPE_THRESHOLD_v2:
 	    /* [uint8_t type][uint32_t addr] */
 	    initialize_iov(&cli->data, 5); 
@@ -209,6 +211,7 @@ free_thrash_client(thrash_client_t *cli)
     free(cli);
 }
 
+#ifdef LIBTHRASHER_MAIN
 void
 resp_callback(thrash_client_t *cli, uint8_t resp)
 {
@@ -263,3 +266,4 @@ main(int argc, char **argv)
 
     return 0;
 }
+#endif
