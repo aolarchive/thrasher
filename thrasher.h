@@ -47,7 +47,8 @@ typedef enum {
     TYPE_THRESHOLD_v1 = 0, 
     TYPE_REMOVE,
     TYPE_INJECT,
-    TYPE_THRESHOLD_v2
+    TYPE_THRESHOLD_v2,
+		TYPE_THRESHOLD_v3
 } thrash_pkt_type;
 
 /***************************************
@@ -92,6 +93,7 @@ typedef struct client_conn {
     iov_t           data;
     query_t         query;
     uint8_t         type;
+		uint32_t        id;
     struct event    event;
 } client_conn_t;
 

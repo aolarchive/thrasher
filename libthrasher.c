@@ -260,8 +260,6 @@ main(int argc, char **argv)
 	thrash_client_lookup(lc, i, (void *)query);
     }
 
-
-
     event_base_loop(evbase, 0);
 
     return 0;

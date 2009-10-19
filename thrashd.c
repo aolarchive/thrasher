@@ -1,8 +1,8 @@
 #include "thrasher.h"
 #include "version.h"
 
-#define MAX_URI_SIZE 255
-#define MAX_HOST_SIZE 255
+#define MAX_URI_SIZE  1500 
+#define MAX_HOST_SIZE 1500 
 
 static char    *process_name;
 static uint32_t uri_check;
@@ -27,6 +27,7 @@ static int      rbl_max_queries;
 static int      rbl_queries;
 static uint32_t rbl_negcache_timeout;
 static uint64_t total_blocked_connections;
+static uint64_t total_queries;
 GSList         *current_connections;
 GTree          *current_blocks;
 GHashTable     *uri_table;
@@ -54,6 +55,13 @@ reset_query(query_t * query)
 void
 free_client_conn(client_conn_t * conn)
 {
+    if (!conn)
+	return;
+
+    LOG("Lost connection from %s:%d",
+	    inet_ntoa(*(struct in_addr *) &conn->conn_addr),
+	    ntohs(conn->conn_port));
+
     reset_iov(&conn->data);
     reset_query(&conn->query);
 
@@ -108,6 +116,7 @@ globals_init(void)
     rbl_max_queries            = 0;
     rbl_queries                = 0;
     total_blocked_connections  = 0;
+    total_queries              = 0;
     config_file                = NULL;
 }
 
@@ -251,9 +260,8 @@ make_rbl_query(uint32_t addr)
     memcpy(addrarg, &addr, sizeof(uint32_t));
 
     rbl_queries += 1;
-    evdns_resolve_ipv4(query,
-                       0, (void *) get_rbl_answer, (void *) addrarg);
-
+    evdns_resolve_ipv4(query, 0, 
+	    (void *) get_rbl_answer, (void *) addrarg);
 
     free(query);
 }
@@ -451,7 +459,9 @@ do_thresholding(client_conn_t * conn)
     int             blocked;
     blocked_node_t *bnode;
 
-    qps += 1;
+    qps++;
+    total_queries++;
+
     blocked = 0;
     ukey = NULL;
     hkey = NULL;
@@ -562,14 +572,35 @@ void
 client_process_data(int sock, short which, client_conn_t * conn)
 {
     int             ioret;
+    int             blocked;
 
     if (!conn->data.buf)
-        initialize_iov(&conn->data, 1);
+	/* if the connection has an ID, then set it
+	   to 5 bytes of reading, else make it only
+	   1 byte */
+        initialize_iov(&conn->data, 
+		conn->id ? 
+		sizeof(uint32_t) + 
+		sizeof(uint8_t) : sizeof(uint8_t));
 
+    if (do_thresholding(conn))
+	blocked = 1;
+    else
+	blocked = 0;
+
+    if (conn->id)
+    {
+	memcpy(conn->data.buf, &conn->id, sizeof(uint32_t));
+	conn->data.buf[4] = blocked;
+    }
+    else
+	*conn->data.buf = blocked;
+#if 0
     if (do_thresholding(conn))
         *conn->data.buf = 1;
     else
         *conn->data.buf = 0;
+#endif
 
     ioret = write_iov(&conn->data, sock);
 
@@ -654,6 +685,45 @@ client_read_payload(int sock, short which, client_conn_t * conn)
               (void *) client_process_data, conn);
     event_add(&conn->event, 0);
 
+}
+
+void 
+client_read_v3_header(int sock, short which, client_conn_t * conn)
+{
+    /* version 3 header includes an extra 32 bit field 
+       at the start of the packet. This allows a client
+       to set an ID which will be echoed along with
+       the response. Otherwise it's just like v1 */
+    int ioret;
+    uint32_t id;
+    
+    if (!conn->data.buf)
+	initialize_iov(&conn->data, sizeof(uint32_t));
+
+    ioret = read_iov(&conn->data, sock);
+
+    if (ioret < 0)
+    {
+	free_client_conn(conn);
+	close(sock);
+	return;
+    }
+
+    if (ioret > 0)
+    {
+	event_set(&conn->event, sock, EV_READ,
+		(void *)client_read_v3_header, conn);
+	event_add(&conn->event, 0);
+	return;
+    }
+
+    memcpy(&conn->id, conn->data.buf, sizeof(uint32_t));
+    reset_iov(&conn->data);
+
+    /* go back to reading a v1 like packet */
+    event_set(&conn->event, sock, EV_READ,
+	    (void *)client_read_v1_header, conn);
+    event_add(&conn->event, 0);
 }
 
 void 
@@ -866,6 +936,11 @@ client_read_type(int sock, short which, client_conn_t * conn)
 		(void *) client_read_v2_header, conn);
 	event_add(&conn->event, 0);
 	break;
+    case TYPE_THRESHOLD_v3:
+	event_set(&conn->event, sock, EV_READ,
+		(void *) client_read_v3_header, conn);
+	event_add(&conn->event, 0);
+	break;
     case TYPE_REMOVE:
     case TYPE_INJECT:
         event_set(&conn->event, sock, EV_READ,
@@ -911,6 +986,11 @@ server_driver(int sock, short which, void *args)
     new_conn->sock = csock;
     new_conn->conn_addr = (uint32_t) addr.sin_addr.s_addr;
     new_conn->conn_port = (uint16_t) addr.sin_port;
+
+    LOG("New connection from %s:%d",
+	    inet_ntoa(*(struct in_addr *) &new_conn->conn_addr),
+		ntohs(new_conn->conn_port));
+
 
     current_connections =
         g_slist_prepend(current_connections, (gpointer) new_conn);
@@ -1390,6 +1470,8 @@ httpd_put_config(struct evhttp_request *req, void *args)
                         g_tree_nnodes(current_blocks), qps_last);
     evbuffer_add_printf(buf, "Total connections blocked: %llu\n", 
 	    total_blocked_connections);
+    evbuffer_add_printf(buf, "Total queries recv: %llu\n",
+	    total_queries);
     evbuffer_add_printf(buf, "DNS Query backlog: %d/%d\n", rbl_queries,
 	    rbl_max_queries);
 
@@ -1642,8 +1724,8 @@ main(int argc, char **argv)
         LOG("ERROR: Could not bind to port: %s", strerror(errno));
         return 0;
     }
-    syslog_init("local6");
 
+    syslog_init("local6");
     log_startup();
 
     if (rundaemon)
