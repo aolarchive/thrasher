@@ -37,6 +37,7 @@ GTree          *rbl_negative_cache;
 GHashTable     *uri_states;
 GHashTable     *host_states;
 GKeyFile       *config_file;
+GTree          *sliding_window;
 
 void
 reset_query(query_t * query)

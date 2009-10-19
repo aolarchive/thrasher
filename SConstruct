@@ -1,9 +1,17 @@
 #!/usr/bin/python
-import os
+import os, sys
 
 debug = ARGUMENTS.get('debug', 0)
 
+if GetOption('help'):
+    sys.exit(1)
+
 env = Environment()
+
+extra_cflags = ARGUMENTS.get('CFLAGS')
+
+if extra_cflags:
+    env.Append(CFLAGS=extra_cflags)
 
 env.ParseConfig('pkg-config --cflags --libs glib-2.0')
 
