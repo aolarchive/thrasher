@@ -529,10 +529,7 @@ do_thresholding(client_conn_t * conn)
 	    /* with v2 we only care about the source-address */
 
 	    if (addr_check <= 0)
-	    {
-		printf("FUCK %d\n", addr_check); 
 		break;
-	    }
 
 	    hkeylen = 13;
 
@@ -833,7 +830,6 @@ client_read_type(int sock, short which, client_conn_t * conn)
 
     if (!conn->data.buf)
         initialize_iov(&conn->data, 1);
-
 
     ioret = read_iov(&conn->data, sock);
 
