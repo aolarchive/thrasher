@@ -1,8 +1,8 @@
 #include "thrasher.h"
 #include "version.h"
 
-#define MAX_URI_SIZE  1500 
-#define MAX_HOST_SIZE 1500 
+#define MAX_URI_SIZE  1500
+#define MAX_HOST_SIZE 1500
 
 static char    *process_name;
 static uint32_t uri_check;
@@ -56,11 +56,11 @@ void
 free_client_conn(client_conn_t * conn)
 {
     if (!conn)
-	return;
+        return;
 
     LOG("Lost connection from %s:%d",
-	    inet_ntoa(*(struct in_addr *) &conn->conn_addr),
-	    ntohs(conn->conn_port));
+        inet_ntoa(*(struct in_addr *) &conn->conn_addr),
+        ntohs(conn->conn_port));
 
     reset_iov(&conn->data);
     reset_query(&conn->query);
@@ -87,37 +87,37 @@ uint32_cmp(const void *a, const void *b)
 void
 globals_init(void)
 {
-    uri_check                  = 1;
-    site_check                 = 1;
-    addr_check                 = 1;
-    bind_addr                  = "0.0.0.0";
-    bind_port                  = 1972;
-    server_port                = 1979;
-    soft_block_timeout         = 60;
+    uri_check = 1;
+    site_check = 1;
+    addr_check = 1;
+    bind_addr = "0.0.0.0";
+    bind_port = 1972;
+    server_port = 1979;
+    soft_block_timeout = 60;
     site_ratio.num_connections = 10;
-    uri_ratio.num_connections  = 10;
-    site_ratio.timelimit       = 60;
-    uri_ratio.timelimit        = 60;
+    uri_ratio.num_connections = 10;
+    site_ratio.timelimit = 60;
+    uri_ratio.timelimit = 60;
     addr_ratio.num_connections = 100;
-    addr_ratio.timelimit       = 10;
-    qps                        = 0;
-    qps_last                   = 0;
-    current_connections        = g_slist_alloc();
-    current_blocks             = g_tree_new((GCompareFunc) uint32_cmp);
-    uri_table                  = g_hash_table_new(g_str_hash, g_str_equal);
-    host_table                 = g_hash_table_new(g_str_hash, g_str_equal);
-    addr_table                 = g_hash_table_new(g_str_hash, g_str_equal);
-    process_name               = "default";
-    syslog_enabled             = 1;
-    rundaemon                  = 0;
-    rbl_zone                   = NULL;
-    rbl_negative_cache         = g_tree_new((GCompareFunc) uint32_cmp);
-    rbl_negcache_timeout       = 10;
-    rbl_max_queries            = 0;
-    rbl_queries                = 0;
-    total_blocked_connections  = 0;
-    total_queries              = 0;
-    config_file                = NULL;
+    addr_ratio.timelimit = 10;
+    qps = 0;
+    qps_last = 0;
+    current_connections = g_slist_alloc();
+    current_blocks = g_tree_new((GCompareFunc) uint32_cmp);
+    uri_table = g_hash_table_new(g_str_hash, g_str_equal);
+    host_table = g_hash_table_new(g_str_hash, g_str_equal);
+    addr_table = g_hash_table_new(g_str_hash, g_str_equal);
+    process_name = "default";
+    syslog_enabled = 1;
+    rundaemon = 0;
+    rbl_zone = NULL;
+    rbl_negative_cache = g_tree_new((GCompareFunc) uint32_cmp);
+    rbl_negcache_timeout = 10;
+    rbl_max_queries = 0;
+    rbl_queries = 0;
+    total_blocked_connections = 0;
+    total_queries = 0;
+    config_file = NULL;
 }
 
 int
@@ -148,7 +148,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
     uint32_t        addr;
     qstats_t        qsnode;
     client_conn_t   cconn;
-    struct in_addr  *in_addrs;
+    struct in_addr *in_addrs;
 #ifdef DEBUG
     LOG("Got an answer for address %u", arg ? *arg : 0);
 #endif
@@ -160,7 +160,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
     in_addrs = NULL;
 
     free(arg);
-    
+
     rbl_queries -= 1;
 
     if (result != DNS_ERR_NONE || count <= 0 ||
@@ -172,8 +172,8 @@ get_rbl_answer(int result, char type, int count, int ttl,
         rbl_negcache_t *rnode;
         struct timeval  tv;
 
-	if (result != DNS_ERR_NOTEXIST)
-	    return;
+        if (result != DNS_ERR_NOTEXIST)
+            return;
 
         rnode = malloc(sizeof(rbl_negcache_t));
         rnode->addr = addr;
@@ -197,16 +197,14 @@ get_rbl_answer(int result, char type, int count, int ttl,
 #endif
     qsnode.saddr = htonl(addr);
 
-    if(in_addrs)
-    {
-	cconn.conn_addr = (uint32_t)in_addrs[0].s_addr; 
-	block_addr(&cconn, &qsnode);
-    }
-    else
-	block_addr(NULL, &qsnode);
+    if (in_addrs) {
+        cconn.conn_addr = (uint32_t) in_addrs[0].s_addr;
+        block_addr(&cconn, &qsnode);
+    } else
+        block_addr(NULL, &qsnode);
 
-    LOG("holding down address %s triggered by RBL", 
-	    inet_ntoa(*(struct in_addr *)&qsnode.saddr));
+    LOG("holding down address %s triggered by RBL",
+        inet_ntoa(*(struct in_addr *) &qsnode.saddr));
 }
 
 void
@@ -226,12 +224,11 @@ make_rbl_query(uint32_t addr)
         return;
     }
 
-    if ((rbl_max_queries) && rbl_queries >= rbl_max_queries)
-    {
+    if ((rbl_max_queries) && rbl_queries >= rbl_max_queries) {
 #if DEBUG
-	LOG("Cannot send query, RBL queue filled to the brim! (%u)", addr);
+        LOG("Cannot send query, RBL queue filled to the brim! (%u)", addr);
 #endif
-	return;
+        return;
     }
 
     addr_str = inet_ntoa(*(struct in_addr *) &addr);
@@ -260,8 +257,8 @@ make_rbl_query(uint32_t addr)
     memcpy(addrarg, &addr, sizeof(uint32_t));
 
     rbl_queries += 1;
-    evdns_resolve_ipv4(query, 0, 
-	    (void *) get_rbl_answer, (void *) addrarg);
+    evdns_resolve_ipv4(query, 0,
+                       (void *) get_rbl_answer, (void *) addrarg);
 
     free(query);
 }
@@ -372,9 +369,9 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         ratio = &site_ratio;
         break;
     case stat_type_address:
-	table = addr_table;
-	ratio = &addr_ratio;
-	break;
+        table = addr_table;
+        ratio = &addr_ratio;
+        break;
     default:
         return 0;
     }
@@ -441,7 +438,7 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         free(blockedaddr);
         free(triggeraddr);
 
-	expire_stats_node(0, 0, stats);
+        expire_stats_node(0, 0, stats);
 
         return 1;
     }
@@ -486,7 +483,7 @@ do_thresholding(client_conn_t * conn)
          * increment our stats counter 
          */
         bnode->count++;
-	total_blocked_connections++;
+        total_blocked_connections++;
         return 1;
     }
 
@@ -503,67 +500,65 @@ do_thresholding(client_conn_t * conn)
     if (rbl_zone)
         make_rbl_query(conn->query.saddr);
 
-    switch(conn->type)
-    {
-	case TYPE_THRESHOLD_v1:
-	    ukeylen = conn->query.uri_len + 13;
+    switch (conn->type) {
+    case TYPE_THRESHOLD_v1:
+        ukeylen = conn->query.uri_len + 13;
 
-	    if (!(ukey = calloc(ukeylen, 1))) {
-		LOG("Out of memory: %s", strerror(errno));
-		exit(1);
-	    }
+        if (!(ukey = calloc(ukeylen, 1))) {
+            LOG("Out of memory: %s", strerror(errno));
+            exit(1);
+        }
 
-	    hkeylen = conn->query.host_len + 13;
-    
-	    if (!(hkey = calloc(hkeylen, 1))) {
-		LOG("Out of memory: %s", strerror(errno));
-		exit(1);
-	    }
+        hkeylen = conn->query.host_len + 13;
 
-	    snprintf(ukey, ukeylen - 1, "%u%s", conn->query.saddr,
-		    conn->query.uri);
-    
-	    snprintf(hkey, hkeylen - 1, "%u%s", conn->query.saddr,
-		    conn->query.host);
+        if (!(hkey = calloc(hkeylen, 1))) {
+            LOG("Out of memory: %s", strerror(errno));
+            exit(1);
+        }
 
-	    if (uri_check && update_thresholds(conn, ukey, 
-			stat_type_uri))
-		blocked = 1;
+        snprintf(ukey, ukeylen - 1, "%u%s", conn->query.saddr,
+                 conn->query.uri);
 
-	    if (site_check && update_thresholds(conn, hkey, 
-			stat_type_host))
-		blocked = 1;
-		
-	    break;
-	case TYPE_THRESHOLD_v2:
-	    /* with v2 we only care about the source-address */
+        snprintf(hkey, hkeylen - 1, "%u%s", conn->query.saddr,
+                 conn->query.host);
 
-	    if (addr_check <= 0)
-		break;
+        if (uri_check && update_thresholds(conn, ukey, stat_type_uri))
+            blocked = 1;
 
-	    hkeylen = 13;
+        if (site_check && update_thresholds(conn, hkey, stat_type_host))
+            blocked = 1;
 
-	    if (!(hkey = calloc(hkeylen, 1)))
-	    {
-		LOG("Out of memory: %s", strerror(errno));
-		exit(1);
-	    }
+        break;
+    case TYPE_THRESHOLD_v2:
+        /*
+         * with v2 we only care about the source-address 
+         */
 
-	    snprintf(hkey, hkeylen - 1, "%u", conn->query.saddr);
+        if (addr_check <= 0)
+            break;
 
-	    if (update_thresholds(conn, hkey, stat_type_address))
-		blocked = 1;
+        hkeylen = 13;
 
-	    break;
-	default:
-	    blocked = 0;
-	    break;
+        if (!(hkey = calloc(hkeylen, 1))) {
+            LOG("Out of memory: %s", strerror(errno));
+            exit(1);
+        }
+
+        snprintf(hkey, hkeylen - 1, "%u", conn->query.saddr);
+
+        if (update_thresholds(conn, hkey, stat_type_address))
+            blocked = 1;
+
+        break;
+    default:
+        blocked = 0;
+        break;
     }
 
     if (ukey)
-	free(ukey);
+        free(ukey);
     if (hkey)
-	free(hkey);
+        free(hkey);
 
     return blocked;
 }
@@ -575,26 +570,25 @@ client_process_data(int sock, short which, client_conn_t * conn)
     int             blocked;
 
     if (!conn->data.buf)
-	/* if the connection has an ID, then set it
-	   to 5 bytes of reading, else make it only
-	   1 byte */
-        initialize_iov(&conn->data, 
-		conn->id ? 
-		sizeof(uint32_t) + 
-		sizeof(uint8_t) : sizeof(uint8_t));
+        /*
+         * if the connection has an ID, then set it to 5 bytes of reading, 
+         * else make it only 1 byte 
+         */
+        initialize_iov(&conn->data,
+                       conn->id ?
+                       sizeof(uint32_t) +
+                       sizeof(uint8_t) : sizeof(uint8_t));
 
     if (do_thresholding(conn))
-	blocked = 1;
+        blocked = 1;
     else
-	blocked = 0;
+        blocked = 0;
 
-    if (conn->id)
-    {
-	memcpy(conn->data.buf, &conn->id, sizeof(uint32_t));
-	conn->data.buf[4] = blocked;
-    }
-    else
-	*conn->data.buf = blocked;
+    if (conn->id) {
+        memcpy(conn->data.buf, &conn->id, sizeof(uint32_t));
+        conn->data.buf[4] = blocked;
+    } else
+        *conn->data.buf = blocked;
 #if 0
     if (do_thresholding(conn))
         *conn->data.buf = 1;
@@ -687,80 +681,80 @@ client_read_payload(int sock, short which, client_conn_t * conn)
 
 }
 
-void 
+void
 client_read_v3_header(int sock, short which, client_conn_t * conn)
 {
-    /* version 3 header includes an extra 32 bit field 
-       at the start of the packet. This allows a client
-       to set an ID which will be echoed along with
-       the response. Otherwise it's just like v1 */
-    int ioret;
-    uint32_t id;
-    
+    /*
+     * version 3 header includes an extra 32 bit field at the start of
+     * the packet. This allows a client to set an ID which will be echoed
+     * along with the response. Otherwise it's just like v1 
+     */
+    int             ioret;
+    uint32_t        id;
+
     if (!conn->data.buf)
-	initialize_iov(&conn->data, sizeof(uint32_t));
+        initialize_iov(&conn->data, sizeof(uint32_t));
 
     ioret = read_iov(&conn->data, sock);
 
-    if (ioret < 0)
-    {
-	free_client_conn(conn);
-	close(sock);
-	return;
+    if (ioret < 0) {
+        free_client_conn(conn);
+        close(sock);
+        return;
     }
 
-    if (ioret > 0)
-    {
-	event_set(&conn->event, sock, EV_READ,
-		(void *)client_read_v3_header, conn);
-	event_add(&conn->event, 0);
-	return;
+    if (ioret > 0) {
+        event_set(&conn->event, sock, EV_READ,
+                  (void *) client_read_v3_header, conn);
+        event_add(&conn->event, 0);
+        return;
     }
 
     memcpy(&conn->id, conn->data.buf, sizeof(uint32_t));
     reset_iov(&conn->data);
 
-    /* go back to reading a v1 like packet */
+    /*
+     * go back to reading a v1 like packet 
+     */
     event_set(&conn->event, sock, EV_READ,
-	    (void *)client_read_v1_header, conn);
+              (void *) client_read_v1_header, conn);
     event_add(&conn->event, 0);
 }
 
-void 
+void
 client_read_v2_header(int sock, short which, client_conn_t * conn)
 {
-    int      ioret;
-    uint32_t saddr;
+    int             ioret;
+    uint32_t        saddr;
 
     if (!conn->data.buf)
-	initialize_iov(&conn->data, 4);
+        initialize_iov(&conn->data, 4);
 
     ioret = read_iov(&conn->data, sock);
 
-    if (ioret < 0)
-    {
-	free_client_conn(conn);
-	close(sock);
-	return;
+    if (ioret < 0) {
+        free_client_conn(conn);
+        close(sock);
+        return;
     }
 
-    if (ioret > 0)
-    {
-	event_set(&conn->event, sock, EV_READ,
-		(void *) client_read_v2_header, conn);
-	event_add(&conn->event, 0);
-	return;
+    if (ioret > 0) {
+        event_set(&conn->event, sock, EV_READ,
+                  (void *) client_read_v2_header, conn);
+        event_add(&conn->event, 0);
+        return;
     }
 
     memcpy(&saddr, conn->data.buf, sizeof(uint32_t));
     conn->query.saddr = saddr;
     reset_iov(&conn->data);
 
-    /* v2 allows us to just recv a source address,
-       thus we can go directly into processing the
-       data */
+    /*
+     * v2 allows us to just recv a source address, thus we can go directly 
+     * into processing the data 
+     */
     event_set(&conn->event, sock, EV_WRITE,
-	    (void *) client_process_data, conn); 
+              (void *) client_process_data, conn);
     event_add(&conn->event, 0);
 }
 
@@ -851,12 +845,11 @@ client_read_injection(int sock, short which, client_conn_t * conn)
         /*
          * make sure the node doesn't already exist 
          */
-        if ((bnode = g_tree_lookup(current_blocks, &saddr)))
-	{
-	    bnode->count++;
-	    total_blocked_connections++;
+        if ((bnode = g_tree_lookup(current_blocks, &saddr))) {
+            bnode->count++;
+            total_blocked_connections++;
             break;
-	}
+        }
 
         bnode = malloc(sizeof(blocked_node_t));
 
@@ -931,16 +924,18 @@ client_read_type(int sock, short which, client_conn_t * conn)
         event_add(&conn->event, 0);
         break;
     case TYPE_THRESHOLD_v2:
-	/* thresholding for IP analysis only */
-	event_set(&conn->event, sock, EV_READ,
-		(void *) client_read_v2_header, conn);
-	event_add(&conn->event, 0);
-	break;
+        /*
+         * thresholding for IP analysis only 
+         */
+        event_set(&conn->event, sock, EV_READ,
+                  (void *) client_read_v2_header, conn);
+        event_add(&conn->event, 0);
+        break;
     case TYPE_THRESHOLD_v3:
-	event_set(&conn->event, sock, EV_READ,
-		(void *) client_read_v3_header, conn);
-	event_add(&conn->event, 0);
-	break;
+        event_set(&conn->event, sock, EV_READ,
+                  (void *) client_read_v3_header, conn);
+        event_add(&conn->event, 0);
+        break;
     case TYPE_REMOVE:
     case TYPE_INJECT:
         event_set(&conn->event, sock, EV_READ,
@@ -988,8 +983,8 @@ server_driver(int sock, short which, void *args)
     new_conn->conn_port = (uint16_t) addr.sin_port;
 
     LOG("New connection from %s:%d",
-	    inet_ntoa(*(struct in_addr *) &new_conn->conn_addr),
-		ntohs(new_conn->conn_port));
+        inet_ntoa(*(struct in_addr *) &new_conn->conn_addr),
+        ntohs(new_conn->conn_port));
 
 
     current_connections =
@@ -1040,93 +1035,86 @@ server_init(void)
 void
 load_config(const char *file)
 {
-    GKeyFileFlags flags;
-    int i;
-    GError *error = NULL;
+    GKeyFileFlags   flags;
+    int             i;
+    GError         *error = NULL;
 
     typedef enum {
-	_c_f_t_str = 1,
-	_c_f_t_int,
-	_c_f_t_ratio
+        _c_f_t_str = 1,
+        _c_f_t_int,
+        _c_f_t_ratio
     } _c_f_t;
 
     struct _c_f_in {
-	char *parent;
-	char *key;
-	_c_f_t type;
-	void *var;
+        char           *parent;
+        char           *key;
+        _c_f_t          type;
+        void           *var;
     } c_f_in[] = {
-	{ "thrashd", "name",             _c_f_t_str,   &process_name },
-	{ "thrashd", "uri-check",        _c_f_t_int,   &uri_check   },
-	{ "thrashd", "host-check",       _c_f_t_int,   &site_check  },
-	{ "thrashd", "addr-check",       _c_f_t_int,   &addr_check  },
-	{ "thrashd", "http-listen-port", _c_f_t_int,   &server_port },
-	{ "thrashd", "listen-port",      _c_f_t_int,   &bind_port   },
-	{ "thrashd", "listen-addr",      _c_f_t_str,   &bind_addr   },
-	{ "thrashd", "block-timeout",    _c_f_t_int,   &soft_block_timeout },
-	{ "thrashd", "uri-ratio",        _c_f_t_ratio, &uri_ratio  },
-	{ "thrashd", "host-ratio",       _c_f_t_ratio, &site_ratio },
-	{ "thrashd", "addr-ratio",       _c_f_t_ratio, &addr_ratio },
-	{ "thrashd", "daemonize",        _c_f_t_int,   &rundaemon  },
-	{ "thrashd", "syslog",           _c_f_t_int,   &syslog_enabled },
-	{ "thrashd", "rbl-zone",         _c_f_t_str,   &rbl_zone },
-	{ "thrashd", 
-	    "rbl-negative-cache-timeout", _c_f_t_int, 
-	    &rbl_negcache_timeout },
-	{ "thrashd", "rbl-nameserver",    _c_f_t_str,  &rbl_ns },
-	{ "thrashd", "rbl-max-query",     _c_f_t_int,  &rbl_max_queries },
-	{ NULL, NULL, 0, NULL }
+        {
+        "thrashd", "name", _c_f_t_str, &process_name}, {
+        "thrashd", "uri-check", _c_f_t_int, &uri_check}, {
+        "thrashd", "host-check", _c_f_t_int, &site_check}, {
+        "thrashd", "addr-check", _c_f_t_int, &addr_check}, {
+        "thrashd", "http-listen-port", _c_f_t_int, &server_port}, {
+        "thrashd", "listen-port", _c_f_t_int, &bind_port}, {
+        "thrashd", "listen-addr", _c_f_t_str, &bind_addr}, {
+        "thrashd", "block-timeout", _c_f_t_int, &soft_block_timeout}, {
+        "thrashd", "uri-ratio", _c_f_t_ratio, &uri_ratio}, {
+        "thrashd", "host-ratio", _c_f_t_ratio, &site_ratio}, {
+        "thrashd", "addr-ratio", _c_f_t_ratio, &addr_ratio}, {
+        "thrashd", "daemonize", _c_f_t_int, &rundaemon}, {
+        "thrashd", "syslog", _c_f_t_int, &syslog_enabled}, {
+        "thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, {
+        "thrashd",
+                "rbl-negative-cache-timeout", _c_f_t_int,
+                &rbl_negcache_timeout}, {
+        "thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
+        "thrashd", "rbl-max-query", _c_f_t_int, &rbl_max_queries}, {
+        NULL, NULL, 0, NULL}
     };
 
     config_file = g_key_file_new();
     flags = G_KEY_FILE_KEEP_COMMENTS;
 
-    if (!g_key_file_load_from_file(config_file, 
-		file, flags, &error))
-	return;
+    if (!g_key_file_load_from_file(config_file, file, flags, &error))
+        return;
 
-    for (i = 0; c_f_in[i].parent != NULL; i++)
-    {
-	char **svar;
-	char  *str;
-	int   *ivar;
-	block_ratio_t *ratio;
-	gchar **splitter;
+    for (i = 0; c_f_in[i].parent != NULL; i++) {
+        char          **svar;
+        char           *str;
+        int            *ivar;
+        block_ratio_t  *ratio;
+        gchar         **splitter;
 
-	if(!g_key_file_has_key(config_file,
-		    c_f_in[i].parent, 
-		    c_f_in[i].key,
-		    &error))
-	    continue;
+        if (!g_key_file_has_key(config_file,
+                                c_f_in[i].parent, c_f_in[i].key, &error))
+            continue;
 
-	switch(c_f_in[i].type)
-	{
-	    case _c_f_t_str:
-	        svar = (char **)c_f_in[i].var;
-		*svar = g_key_file_get_string(
-			config_file,
-			c_f_in[i].parent, 
-			c_f_in[i].key, NULL);
-		break;
-	    case _c_f_t_int:
-		ivar = (int *)c_f_in[i].var;
-		*ivar = g_key_file_get_integer(
-			config_file, 
-			c_f_in[i].parent,
-			c_f_in[i].key, NULL);
-		break;
-	    case _c_f_t_ratio:
-		ratio = (block_ratio_t *)c_f_in[i].var;
-		str = g_key_file_get_string(
-			config_file,
-			c_f_in[i].parent,
-			c_f_in[i].key, NULL);
-		splitter = g_strsplit(str, ":", 2);
-		ratio->num_connections = atoll(splitter[0]);
-		ratio->timelimit       = atoll(splitter[1]);
-		g_strfreev(splitter);
-		break;
-	}
+        switch (c_f_in[i].type) {
+        case _c_f_t_str:
+            svar = (char **) c_f_in[i].var;
+            *svar = g_key_file_get_string(config_file,
+                                          c_f_in[i].parent,
+                                          c_f_in[i].key, NULL);
+            break;
+        case _c_f_t_int:
+            ivar = (int *) c_f_in[i].var;
+            *ivar = g_key_file_get_integer(config_file,
+                                           c_f_in[i].parent,
+                                           c_f_in[i].key, NULL);
+            break;
+        case _c_f_t_ratio:
+            ratio = (block_ratio_t *) c_f_in[i].var;
+            str = g_key_file_get_string(config_file,
+                                        c_f_in[i].parent,
+                                        c_f_in[i].key, NULL);
+            splitter = g_strsplit(str, ":", 2);
+            ratio->num_connections = atoll(splitter[0]);
+            ratio->timelimit = atoll(splitter[1]);
+            g_strfreev(splitter);
+            break;
+        }
     }
 }
 
@@ -1166,16 +1154,16 @@ parse_args(int argc, char **argv)
         conf_rbl_zone,
         conf_rbl_negcache_timeout,
         conf_rbl_ns,
-	conf_rbl_max_queries,
+        conf_rbl_max_queries,
         conf_server_port,
-	conf_no_addr_check,
-	conf_addr_block_ratio
+        conf_no_addr_check,
+        conf_addr_block_ratio
     };
 
     static struct option long_options[] = {
         {"no-uri-check", no_argument, 0, conf_no_uri_check},
         {"no-site-check", no_argument, 0, conf_no_site_check},
-	{"no-addr-check", no_argument, 0, conf_no_addr_check},
+        {"no-addr-check", no_argument, 0, conf_no_addr_check},
         {"bind-addr", required_argument, 0, conf_bind_addr},
         {"bind-port", required_argument, 0, conf_bind_port},
         {"server-port", required_argument, 0, conf_server_port},
@@ -1183,12 +1171,12 @@ parse_args(int argc, char **argv)
          conf_soft_block_timeout},
         {"site-block-ratio", required_argument, 0, conf_site_block_ratio},
         {"uri-block-ratio", required_argument, 0, conf_uri_block_ratio},
-	{"addr-block-ratio", required_argument, 0, conf_addr_block_ratio},
+        {"addr-block-ratio", required_argument, 0, conf_addr_block_ratio},
         {"name", required_argument, 0, conf_name},
         {"no-syslog", no_argument, 0, conf_no_syslog},
         {"rbl-zone", required_argument, 0, conf_rbl_zone},
         {"rbl-ns", required_argument, 0, conf_rbl_ns},
-	{"rbl-max-queries", required_argument, 0, conf_rbl_max_queries},
+        {"rbl-max-queries", required_argument, 0, conf_rbl_max_queries},
         {"rbl-negcache-timeout", required_argument, 0,
          conf_rbl_negcache_timeout},
         {0, 0, 0, 0}
@@ -1206,14 +1194,14 @@ parse_args(int argc, char **argv)
         "applications can use.\n\n"
         "options:\n"
         "  -h, --help            show this help message and exit\n\n"
-	"  -c <CONFIG>           Thrasher configuration file\n\n"
+        "  -c <CONFIG>           Thrasher configuration file\n\n"
         "  -U, --no-uri-check    If the administrator wishes to not threshold \n"
         "                        connections via the http URI being fetched by a \n"
         "                        client; you may use this flag to disable it.\n\n"
         "  -S, --no-site-check   if the administrator wishes to not threshold \n"
         "                        connections via the http Host header being fetched by \n"
         "                        a client; you may use this flag to disable it. \n\n"
-	"  -A, --no-addr-check   No v2 source-address-only checks. \n\n"
+        "  -A, --no-addr-check   No v2 source-address-only checks. \n\n"
         "  -x, --site-block-ratio=SITE_BLOCK_RATIO \n"
         "                        This flag sets the threshold ratio.  The argument must \n"
         "                        be in the format of X:Y where X equals the number of \n"
@@ -1226,13 +1214,13 @@ parse_args(int argc, char **argv)
         "  -y, --uri-block-ratio=URI_BLOCK_RATIO \n"
         "                        Functionally the same as --site-block-ratio but uses \n"
         "                        the URI of the http request for analysis.\n\n"
-	"  -z, --addr-block-ratio=ADDR_BLOCK_RATIO \n"
-	"                        This enables the ability for a client to send a much \n"
+        "  -z, --addr-block-ratio=ADDR_BLOCK_RATIO \n"
+        "                        This enables the ability for a client to send a much \n"
         "                        smaller payload containing only the source address. \n"
         "                        This used in conjunction with webfw2 + uri/host filter \n"
         "                        with a thrasher action would be an optimal selection \n\n"
         "                        Functionally this works the same as other ratios, but only\n"
-        "                        cares about the source-address\n\n" 
+        "                        cares about the source-address\n\n"
         "                        NOTE: client must support V2 thrasher connections.\n\n"
         "  -t, --soft-block-timeout=SOFT_BLOCK_TIMEOUT \n"
         "                        A timeout (in seconds) to expire a held-down address \n"
@@ -1249,10 +1237,10 @@ parse_args(int argc, char **argv)
         "  -N, --rbl-negcache-timeout=RBL_NEGCACHE_TIMEOUT\n"
         "                        The time in seconds to keep negative answers \n"
         "                        (NXDOMAIN) in state so the RBL server is not hammered \n\n"
-	"  -R, --rbl-ns=RBL_NAMESERVER \n"
-	"                        The nameserver to use for RBL checks if not in /etc/resolv.conf\n\n"
-	"  -l, --rbl-max-queries=MAX \n"
-	"                        The maximum number of outstanding RBL queries\n\n"
+        "  -R, --rbl-ns=RBL_NAMESERVER \n"
+        "                        The nameserver to use for RBL checks if not in /etc/resolv.conf\n\n"
+        "  -l, --rbl-max-queries=MAX \n"
+        "                        The maximum number of outstanding RBL queries\n\n"
         "  -b, --bind-addr=BIND_ADDR \n"
         "                        Bind services to only this address, default is 0.0.0.0 \n\n"
         "  -p, --bind-port=BIND_PORT \n"
@@ -1271,89 +1259,90 @@ parse_args(int argc, char **argv)
         "  -D                    Daemonize (rawr). \n";
 
 
-    while ((c = getopt_long(argc, argv, "vDl:USAb:p:P:t:x:y:z:n:Lr:R:l:N:c:",
-                            long_options, &option_index)) > 0) {
+    while ((c =
+            getopt_long(argc, argv, "vDl:USAb:p:P:t:x:y:z:n:Lr:R:l:N:c:",
+                        long_options, &option_index)) > 0) {
         gchar         **splitter;
         switch (c) {
         case 'c':
-	    load_config(optarg);
-	    break;
-	case 'U':
+            load_config(optarg);
+            break;
+        case 'U':
         case conf_no_uri_check:
             uri_check = 0;
             break;
-	case 'S':
+        case 'S':
         case conf_no_site_check:
             site_check = 0;
             break;
-	case 'A':
-	case conf_no_addr_check:
-	    addr_check = 0;
-	    break;
-	case 'P':
+        case 'A':
+        case conf_no_addr_check:
+            addr_check = 0;
+            break;
+        case 'P':
         case conf_server_port:
             server_port = atoi(optarg);
             break;
-	case 't':
+        case 't':
         case conf_soft_block_timeout:
             soft_block_timeout = atoll(optarg);
             break;
-	case 'y':
+        case 'y':
         case conf_uri_block_ratio:
             splitter = g_strsplit(optarg, ":", 2);
             uri_ratio.num_connections = atoll(splitter[0]);
             uri_ratio.timelimit = atoll(splitter[1]);
             g_strfreev(splitter);
             break;
-	case 'x':
+        case 'x':
         case conf_site_block_ratio:
             splitter = g_strsplit(optarg, ":", 2);
             site_ratio.num_connections = atoll(splitter[0]);
             site_ratio.timelimit = atoll(splitter[1]);
             g_strfreev(splitter);
             break;
-	case 'z':
-	case conf_addr_block_ratio:
-	    splitter = g_strsplit(optarg, ":", 2);
-	    addr_ratio.num_connections = atoll(splitter[0]);
-	    addr_ratio.timelimit = atoll(splitter[1]);
-	    g_strfreev(splitter);
-	    break;
-	case 'b':
+        case 'z':
+        case conf_addr_block_ratio:
+            splitter = g_strsplit(optarg, ":", 2);
+            addr_ratio.num_connections = atoll(splitter[0]);
+            addr_ratio.timelimit = atoll(splitter[1]);
+            g_strfreev(splitter);
+            break;
+        case 'b':
         case conf_bind_addr:
             bind_addr = optarg;
             break;
-	case 'p':
+        case 'p':
         case conf_bind_port:
             bind_port = atoi(optarg);
             break;
         case 'D':
             rundaemon = 1;
             break;
-	case 'n':
+        case 'n':
         case conf_name:
             process_name = optarg;
             break;
-	case 'L':
+        case 'L':
         case conf_no_syslog:
             syslog_enabled = 0;
             break;
-	case 'r':
+        case 'r':
         case conf_rbl_zone:
             rbl_zone = strdup(optarg);
             break;
-	case 'N':
+        case 'N':
         case conf_rbl_negcache_timeout:
             rbl_negcache_timeout = atoi(optarg);
             break;
-	case 'R':
+        case 'R':
         case conf_rbl_ns:
             rbl_ns = strdup(optarg);
             break;
-	case 'l':
-	case conf_rbl_max_queries:
-	    rbl_max_queries = atoi(optarg);
-	    break;
+        case 'l':
+        case conf_rbl_max_queries:
+            rbl_max_queries = atoi(optarg);
+            break;
         default:
             printf("Version: %s (%s)\n", VERSION, VERSION_NAME);
             printf("Usage: %s [opts]\n%s", argv[0], help);
@@ -1370,18 +1359,19 @@ fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer * buf)
     char           *blockedaddr;
     char           *triggeraddr;
 
-    blockedaddr = 
-	strdup(inet_ntoa(*(struct in_addr *) &val->saddr));
+    blockedaddr = strdup(inet_ntoa(*(struct in_addr *) &val->saddr));
 
     triggeraddr =
         strdup(inet_ntoa(*(struct in_addr *) &val->first_seen_addr));
 
     if (blockedaddr && triggeraddr)
-	evbuffer_add_printf(buf, "%-15s %-15s %-15d\n",
-                        blockedaddr, triggeraddr, val->count);
+        evbuffer_add_printf(buf, "%-15s %-15s %-15d\n",
+                            blockedaddr, triggeraddr, val->count);
 
-    if (blockedaddr) free(blockedaddr);
-    if (triggeraddr) free(triggeraddr);
+    if (blockedaddr)
+        free(blockedaddr);
+    if (triggeraddr)
+        free(triggeraddr);
 
     return FALSE;
 }
@@ -1420,7 +1410,7 @@ httpd_put_connections(struct evhttp_request *req, void *args)
 
 #if 0
     TAILQ_FOREACH(header, req->output_headers, req->next) {
-	printf("%s -> %s\n", key, header->value);
+        printf("%s -> %s\n", key, header->value);
     }
 #endif
     buf = evbuffer_new();
@@ -1451,7 +1441,7 @@ httpd_put_config(struct evhttp_request *req, void *args)
     evbuffer_add_printf(buf, "  Host Check Enabled: %s\n",
                         site_check ? "yes" : "no");
     evbuffer_add_printf(buf, "  Addr Check Enabled: %s\n",
-	                addr_check ? "yes" : "no");
+                        addr_check ? "yes" : "no");
     evbuffer_add_printf(buf, "  Bind addr:          %s\n", bind_addr);
     evbuffer_add_printf(buf, "  Bind port:          %d\n", bind_port);
     evbuffer_add_printf(buf, "  Soft block timeout: %d\n\n",
@@ -1463,17 +1453,16 @@ httpd_put_config(struct evhttp_request *req, void *args)
                         "  URI block ratio:  %d hits over %d seconds\n",
                         uri_ratio.num_connections, uri_ratio.timelimit);
     evbuffer_add_printf(buf,
-	                "  ADDR block ratio: %d hits over %d seconds\n\n",
-			addr_ratio.num_connections, addr_ratio.timelimit);
+                        "  ADDR block ratio: %d hits over %d seconds\n\n",
+                        addr_ratio.num_connections, addr_ratio.timelimit);
     evbuffer_add_printf(buf,
                         "%d addresses currently in hold-down (%u qps)\n",
                         g_tree_nnodes(current_blocks), qps_last);
-    evbuffer_add_printf(buf, "Total connections blocked: %llu\n", 
-	    total_blocked_connections);
-    evbuffer_add_printf(buf, "Total queries recv: %llu\n",
-	    total_queries);
+    evbuffer_add_printf(buf, "Total connections blocked: %llu\n",
+                        total_blocked_connections);
+    evbuffer_add_printf(buf, "Total queries recv: %llu\n", total_queries);
     evbuffer_add_printf(buf, "DNS Query backlog: %d/%d\n", rbl_queries,
-	    rbl_max_queries);
+                        rbl_max_queries);
 
     evhttp_send_reply(req, HTTP_OK, "OK", buf);
     evbuffer_free(buf);
@@ -1534,7 +1523,8 @@ static struct dsn_c_pvt_sfnt {
     int             val;
     const char     *strval;
 } facilities[] = {
-    { LOG_KERN, "kern"}, {
+    {
+    LOG_KERN, "kern"}, {
     LOG_USER, "user"}, {
     LOG_MAIL, "mail"}, {
     LOG_DAEMON, "daemon"}, {
@@ -1650,39 +1640,30 @@ daemonize(const char *path)
     }
 }
 
-void 
+void
 log_startup(void)
 {
     LOG("Name:             %s", process_name);
 
-    if (uri_check)
-    {
-	LOG("URI Block Ratio:  %u connections within %u seconds",
-		uri_ratio.num_connections, uri_ratio.timelimit);
-    }
-    else
-    {
-	LOG("URI Block:        DISABLED");
+    if (uri_check) {
+        LOG("URI Block Ratio:  %u connections within %u seconds",
+            uri_ratio.num_connections, uri_ratio.timelimit);
+    } else {
+        LOG("URI Block:        DISABLED");
     }
 
-    if (site_check)
-    {
-	LOG("Host Block Ratio: %u connections within %u seconds",
-		site_ratio.num_connections, site_ratio.timelimit);
-    }
-    else
-    {
-	LOG("Host Block:       DISABLED");
+    if (site_check) {
+        LOG("Host Block Ratio: %u connections within %u seconds",
+            site_ratio.num_connections, site_ratio.timelimit);
+    } else {
+        LOG("Host Block:       DISABLED");
     }
 
-    if (addr_check)
-    {
-	LOG("Addr Block Ratio: %u connections within %u seconds",
-		addr_ratio.num_connections, addr_ratio.timelimit);
-    }
-    else
-    {
-	LOG("Host Block:       DISABLED");
+    if (addr_check) {
+        LOG("Addr Block Ratio: %u connections within %u seconds",
+            addr_ratio.num_connections, addr_ratio.timelimit);
+    } else {
+        LOG("Host Block:       DISABLED");
     }
 
     LOG("HTTP Listen Port: %d", server_port);
@@ -1690,21 +1671,18 @@ log_startup(void)
     LOG("Listen Port:      %d", bind_port);
     LOG("Block Timeout:    %d", soft_block_timeout);
 
-    if (rbl_zone)
-    {
-	LOG("RBL:                  ENABLED"); 
-	LOG("RBL Zone:             %s", rbl_zone);
-	LOG("RBL Nameserver:       %s", rbl_ns);
-	LOG("RBL Negative Timeout: %d", rbl_negcache_timeout); 
-	LOG("RBL Max Queries:      %d", rbl_max_queries);
-    }
-    else 
-    {
-	LOG("RBL:              DISABLED"); 
+    if (rbl_zone) {
+        LOG("RBL:                  ENABLED");
+        LOG("RBL Zone:             %s", rbl_zone);
+        LOG("RBL Nameserver:       %s", rbl_ns);
+        LOG("RBL Negative Timeout: %d", rbl_negcache_timeout);
+        LOG("RBL Max Queries:      %d", rbl_max_queries);
+    } else {
+        LOG("RBL:              DISABLED");
     }
 
 
-} 
+}
 
 int
 main(int argc, char **argv)
