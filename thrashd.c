@@ -37,7 +37,12 @@ GTree          *rbl_negative_cache;
 GHashTable     *uri_states;
 GHashTable     *host_states;
 GKeyFile       *config_file;
-GTree          *sliding_window;
+GTree          *recently_blocked;
+GRand          *randdata;
+
+static uint32_t recently_blocked_timeout;
+static block_ratio_t minimum_random_ratio;
+static block_ratio_t maximum_random_ratio;
 
 void
 reset_query(query_t * query)
@@ -119,12 +124,71 @@ globals_init(void)
     total_blocked_connections = 0;
     total_queries = 0;
     config_file = NULL;
+    randdata = NULL;
+    recently_blocked = NULL;
+    recently_blocked_timeout = 120;
 }
 
 int
 set_nb(int sock)
 {
     return fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, 0) | O_NONBLOCK);
+}
+
+void
+slide_ratios(blocked_node_t *bnode)
+{
+    uint32_t last_conn, last_time;
+
+    if(!bnode)
+        return;
+
+    last_conn = bnode->ratio.num_connections;
+    last_time = bnode->ratio.timelimit;
+
+    if (!last_conn && !last_time)
+    {
+        last_conn = g_rand_int_range(randdata, 
+                minimum_random_ratio.num_connections,
+                maximum_random_ratio.num_connections);
+	last_time = g_rand_int_range(randdata,
+		minimum_random_ratio.timelimit,
+		maximum_random_ratio.timelimit);
+    }
+    else {
+        if (minimum_random_ratio.num_connections == last_conn)
+            last_conn++;
+
+        if (maximum_random_ratio.timelimit == last_time)
+            last_time++;
+
+        last_conn = g_rand_int_range(randdata,
+                minimum_random_ratio.num_connections,
+                last_conn);
+
+        last_time = g_rand_int_range(randdata,
+		last_time, maximum_random_ratio.timelimit);
+    }
+
+    if (last_conn <= minimum_random_ratio.num_connections ||
+            last_time >= maximum_random_ratio.timelimit+1)
+    {
+        last_conn = g_rand_int_range(randdata,
+                minimum_random_ratio.num_connections,
+                maximum_random_ratio.num_connections);
+
+	last_time = g_rand_int_range(randdata,
+		minimum_random_ratio.timelimit,
+		maximum_random_ratio.timelimit);
+
+    }
+    
+#ifdef DEBUG
+    LOG("our new random ratio is %d:%d",
+	    last_conn, last_time);
+#endif
+    bnode->ratio.num_connections = last_conn;
+    bnode->ratio.timelimit = last_time;
 }
 
 void
@@ -200,9 +264,9 @@ get_rbl_answer(int result, char type, int count, int ttl,
 
     if (in_addrs) {
         cconn.conn_addr = (uint32_t) in_addrs[0].s_addr;
-        block_addr(&cconn, &qsnode);
+        block_addr(&cconn, qsnode.saddr);
     } else
-        block_addr(NULL, &qsnode);
+        block_addr(NULL, qsnode.saddr);
 
     LOG("holding down address %s triggered by RBL",
         inet_ntoa(*(struct in_addr *) &qsnode.saddr));
@@ -282,6 +346,55 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
 
     evtimer_del(&bnode->timeout);
     remove_holddown(bnode->saddr);
+
+    if (recently_blocked)
+    {
+	/* if we have our moving ratios enabled we 
+	   put the blocked node into recently_blocked
+	*/
+	struct timeval tv;
+
+	evtimer_del(&bnode->recent_block_timeout);
+
+	/* slide our windows around */
+	slide_ratios(bnode);
+
+	/* reset our count */
+	bnode->count = 0;
+
+	/* load this guy up into our recently blocked list */
+	g_tree_insert(recently_blocked, 
+		&bnode->saddr, bnode);
+
+	tv.tv_sec = recently_blocked_timeout;
+	tv.tv_usec = 0;
+
+	evtimer_set(&bnode->recent_block_timeout,
+		(void *)expire_recent_bnode, bnode);
+	evtimer_add(&bnode->recent_block_timeout, &tv);
+
+#if DEBUG
+	LOG("Placing %s into recently blocked list with a ratio of %d:%d",
+		inet_ntoa(*(struct in_addr *) &bnode->saddr),
+		    bnode->ratio.num_connections, bnode->ratio.timelimit);
+#endif
+	return;
+    }
+
+    free(bnode);
+}
+
+void
+expire_recent_bnode(int sock, short which, blocked_node_t *bnode)
+{
+
+#ifdef DEBUG
+    LOG("expire_recent_bnode(%p) %s",
+	    bnode, inet_ntoa(*(struct in_addr *) &bnode->saddr));
+#endif
+
+    evtimer_del(&bnode->recent_block_timeout);
+    g_tree_remove(recently_blocked, &bnode->saddr);
     free(bnode);
 }
 
@@ -308,7 +421,7 @@ expire_stats_node(int sock, short which, qstats_t * stat_node)
 }
 
 blocked_node_t *
-block_addr(client_conn_t * conn, qstats_t * stats)
+block_addr(client_conn_t *conn, uint32_t addr)
 {
     blocked_node_t *bnode;
     struct timeval  tv;
@@ -323,7 +436,7 @@ block_addr(client_conn_t * conn, qstats_t * stats)
 
     memset(bnode, 0, sizeof(blocked_node_t));
 
-    bnode->saddr = stats->saddr;
+    bnode->saddr = addr;
     bnode->count = 1;
 
     if (conn)
@@ -380,6 +493,7 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
     stats = g_hash_table_lookup(table, key);
 
     if (!stats) {
+
         /*
          * create a new statistics table for this type 
          */
@@ -427,7 +541,7 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         char           *blockedaddr;
         char           *triggeraddr;
 
-        bnode = block_addr(conn, stats);
+        bnode = block_addr(conn, stats->saddr);
 
         blockedaddr = strdup(inet_ntoa(*(struct in_addr *) &bnode->saddr));
         triggeraddr =
@@ -455,6 +569,7 @@ do_thresholding(client_conn_t * conn)
     char           *hkey,
                    *ukey;
     int             blocked;
+    struct timeval  tv;
     blocked_node_t *bnode;
 
     qps++;
@@ -472,7 +587,6 @@ do_thresholding(client_conn_t * conn)
          * this connection seems to be blocked, reset our block timers
          * and continue on 
          */
-        struct timeval  tv;
         tv.tv_sec = soft_block_timeout;
         tv.tv_usec = 0;
 
@@ -486,6 +600,48 @@ do_thresholding(client_conn_t * conn)
         bnode->count++;
         total_blocked_connections++;
         return 1;
+    }
+
+    if (recently_blocked && (bnode = 
+		g_tree_lookup(recently_blocked, &conn->query.saddr)))
+    {
+	if(bnode->count++ == 0)
+	{
+	    /* since this is the first packet it recv'd after being
+	       recently blocked, delete the bnode timeout and process
+	       as normal with expire_bnode for timeout cb */ 
+	    evtimer_del(&bnode->recent_block_timeout);
+
+	    tv.tv_sec  = bnode->ratio.timelimit;
+	    tv.tv_usec = 0;
+
+	    evtimer_set(&bnode->recent_block_timeout,
+		    (void *)expire_bnode, bnode);
+	    evtimer_add(&bnode->recent_block_timeout, &tv);
+	}
+
+	if (bnode->count >= bnode->ratio.num_connections)
+	{
+	    /* this connection deserves to be blocked */
+	    
+	    /* remove from our recently blocked list */
+	    evtimer_del(&bnode->recent_block_timeout);
+	    g_tree_remove(recently_blocked, &conn->query.saddr);
+
+	    /* insert into our block tree */
+	    g_tree_insert(current_blocks, &bnode->saddr, bnode);
+
+	    /* set our timeout to the normal timelimit */
+	    tv.tv_sec  = soft_block_timeout;
+	    tv.tv_usec = 0;
+
+	    evtimer_set(&bnode->timeout, (void *)expire_bnode, bnode);
+	    evtimer_add(&bnode->timeout, &tv);
+
+	    return 1;
+	}
+
+	return 0;
     }
 
     /*
@@ -590,12 +746,6 @@ client_process_data(int sock, short which, client_conn_t * conn)
         conn->data.buf[4] = blocked;
     } else
         *conn->data.buf = blocked;
-#if 0
-    if (do_thresholding(conn))
-        *conn->data.buf = 1;
-    else
-        *conn->data.buf = 0;
-#endif
 
     ioret = write_iov(&conn->data, sock);
 
@@ -933,6 +1083,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
         event_add(&conn->event, 0);
         break;
     case TYPE_THRESHOLD_v3:
+	/* just like v1 but with a 32bit identification header */
         event_set(&conn->event, sock, EV_READ,
                   (void *) client_read_v3_header, conn);
         event_add(&conn->event, 0);
@@ -1043,6 +1194,7 @@ load_config(const char *file)
     typedef enum {
         _c_f_t_str = 1,
         _c_f_t_int,
+	_c_f_t_trie,
         _c_f_t_ratio
     } _c_f_t;
 
@@ -1072,6 +1224,17 @@ load_config(const char *file)
                 &rbl_negcache_timeout}, {
         "thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
         "thrashd", "rbl-max-query", _c_f_t_int, &rbl_max_queries}, {
+	"thrashd", "rand-ratio", _c_f_t_trie, &recently_blocked}, {  
+        "thrashd", "min-rand-ratio", _c_f_t_ratio, &minimum_random_ratio}, {
+	"thrashd", "max-rand-ratio", _c_f_t_ratio, &maximum_random_ratio}, {    
+        "thrashd", "recently-blocked-timeout", _c_f_t_int, 
+	        &recently_blocked_timeout}, {
+        "thrashd", "rbl-negative-cache-timeout", _c_f_t_int,
+	        &rbl_negcache_timeout}, {
+        "thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, {
+	"thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
+	"thrashd", "rbl-max-queries", _c_f_t_int,
+                &rbl_max_queries}, {	
         NULL, NULL, 0, NULL}
     };
 
@@ -1085,6 +1248,7 @@ load_config(const char *file)
         char          **svar;
         char           *str;
         int            *ivar;
+	GTree          **tvar;
         block_ratio_t  *ratio;
         gchar         **splitter;
 
@@ -1093,12 +1257,17 @@ load_config(const char *file)
             continue;
 
         switch (c_f_in[i].type) {
+
         case _c_f_t_str:
             svar = (char **) c_f_in[i].var;
             *svar = g_key_file_get_string(config_file,
                                           c_f_in[i].parent,
                                           c_f_in[i].key, NULL);
             break;
+	case _c_f_t_trie:
+	    tvar = (GTree **) c_f_in[i].var;
+	    *tvar = g_tree_new((GCompareFunc) uint32_cmp);
+	    break;
         case _c_f_t_int:
             ivar = (int *) c_f_in[i].var;
             *ivar = g_key_file_get_integer(config_file,
@@ -1128,64 +1297,8 @@ parse_args(int argc, char **argv)
                     optopt;
     int             c,
                     option_index = 0;
-    uint32_t        pass;
 
-    enum {
-        conf_help,
-        conf_no_uri_check,
-        conf_no_site_check,
-        conf_bind_addr,
-        conf_bind_port,
-        /*
-         * this is the soft timeout for a blocked srcip. if this src
-         * address is not seen for this amount of time making new
-         * requests, this will expire that block 
-         */
-        conf_soft_block_timeout,
-        /*
-         * This option is set in the format of x:y, where X is the number
-         * of connections and Y is the timeframe in which it was seen in
-         * seconds. Example: 5:60 would mean to block that source address
-         * if it made 5 connections within 60 seconds 
-         */
-        conf_site_block_ratio,
-        conf_uri_block_ratio,
-        conf_name,
-        conf_no_syslog,
-        conf_rbl_zone,
-        conf_rbl_negcache_timeout,
-        conf_rbl_ns,
-        conf_rbl_max_queries,
-        conf_server_port,
-        conf_no_addr_check,
-        conf_addr_block_ratio
-    };
-
-    static struct option long_options[] = {
-        {"no-uri-check", no_argument, 0, conf_no_uri_check},
-        {"no-site-check", no_argument, 0, conf_no_site_check},
-        {"no-addr-check", no_argument, 0, conf_no_addr_check},
-        {"bind-addr", required_argument, 0, conf_bind_addr},
-        {"bind-port", required_argument, 0, conf_bind_port},
-        {"server-port", required_argument, 0, conf_server_port},
-        {"soft-block-timeout", required_argument, 0,
-         conf_soft_block_timeout},
-        {"site-block-ratio", required_argument, 0, conf_site_block_ratio},
-        {"uri-block-ratio", required_argument, 0, conf_uri_block_ratio},
-        {"addr-block-ratio", required_argument, 0, conf_addr_block_ratio},
-        {"name", required_argument, 0, conf_name},
-        {"no-syslog", no_argument, 0, conf_no_syslog},
-        {"rbl-zone", required_argument, 0, conf_rbl_zone},
-        {"rbl-ns", required_argument, 0, conf_rbl_ns},
-        {"rbl-max-queries", required_argument, 0, conf_rbl_max_queries},
-        {"rbl-negcache-timeout", required_argument, 0,
-         conf_rbl_negcache_timeout},
-        {0, 0, 0, 0}
-    };
-
-    pass = 1514952012;
-
-    static char    *help =
+    static char *help = 
         "Copyright AOL LLC 2008-2009\n\n"
         "The main goal of this project is to allow a farm of autonomous servers to \n"
         "collect and block malicious addresses maliciously attacking services.\n\n"
@@ -1193,162 +1306,28 @@ parse_args(int argc, char **argv)
         "Apache (unable to collect stats between forks in mpm_worker, unable to sync \n"
         "stats on a load balanced farm) this has turned into a service that many \n"
         "applications can use.\n\n"
-        "options:\n"
-        "  -h, --help            show this help message and exit\n\n"
-        "  -c <CONFIG>           Thrasher configuration file\n\n"
-        "  -U, --no-uri-check    If the administrator wishes to not threshold \n"
-        "                        connections via the http URI being fetched by a \n"
-        "                        client; you may use this flag to disable it.\n\n"
-        "  -S, --no-site-check   if the administrator wishes to not threshold \n"
-        "                        connections via the http Host header being fetched by \n"
-        "                        a client; you may use this flag to disable it. \n\n"
-        "  -A, --no-addr-check   No v2 source-address-only checks. \n\n"
-        "  -x, --site-block-ratio=SITE_BLOCK_RATIO \n"
-        "                        This flag sets the threshold ratio.  The argument must \n"
-        "                        be in the format of X:Y where X equals the number of \n"
-        "                        incoming queries and Y representing the window of time \n"
-        "                        (in seconds).\n\n"
-        "                        For example: 20:60 means \"hold-down the \n"
-        "                        source address if 20 requests were made within 60 \n"
-        "                        seconds\". It should be noted that this ratio is based \n"
-        "                        on the http Host header. \n\n"
-        "  -y, --uri-block-ratio=URI_BLOCK_RATIO \n"
-        "                        Functionally the same as --site-block-ratio but uses \n"
-        "                        the URI of the http request for analysis.\n\n"
-        "  -z, --addr-block-ratio=ADDR_BLOCK_RATIO \n"
-        "                        This enables the ability for a client to send a much \n"
-        "                        smaller payload containing only the source address. \n"
-        "                        This used in conjunction with webfw2 + uri/host filter \n"
-        "                        with a thrasher action would be an optimal selection \n\n"
-        "                        Functionally this works the same as other ratios, but only\n"
-        "                        cares about the source-address\n\n"
-        "                        NOTE: client must support V2 thrasher connections.\n\n"
-        "  -t, --soft-block-timeout=SOFT_BLOCK_TIMEOUT \n"
-        "                        A timeout (in seconds) to expire a held-down address \n"
-        "                        if no new connections from this address are reported \n"
-        "                        to the daemon. Once another connection is reported the \n"
-        "                        timer resets \n\n"
-        "  -r, --rbl-zone=RBL_ZONE If the administrator wishes to utilize an RBL service \n"
-        "                        as another method of holding-down known baddies and \n"
-        "                        bypass ratios, this flag will enable that feature.\n\n"
-        "                        The argument must be the zone in which you have your RBL \n"
-        "                        set to, e.g., '--rbl-zone dnsbl.yourserver.com'. This \n"
-        "                        will prepend addresses to this zone \n"
-        "                        '1.0.0.127.dnsbl.yourserver.com.' for lookup.\n\n"
-        "  -N, --rbl-negcache-timeout=RBL_NEGCACHE_TIMEOUT\n"
-        "                        The time in seconds to keep negative answers \n"
-        "                        (NXDOMAIN) in state so the RBL server is not hammered \n\n"
-        "  -R, --rbl-ns=RBL_NAMESERVER \n"
-        "                        The nameserver to use for RBL checks if not in /etc/resolv.conf\n\n"
-        "  -l, --rbl-max-queries=MAX \n"
-        "                        The maximum number of outstanding RBL queries\n\n"
-        "  -b, --bind-addr=BIND_ADDR \n"
-        "                        Bind services to only this address, default is 0.0.0.0 \n\n"
-        "  -p, --bind-port=BIND_PORT \n"
-        "                        The port to listen on for the thrasher thresholding \n"
-        "                        handler \n\n"
-        "  -P, --server-port=SERVER_PORT \n"
-        "                        The port to listen on for the thrasher statistics \n"
-        "                        interface \n\n"
-        "  -L, --no-syslog       The default behaviour of various logs thrasher \n"
-        "                        generates is to syslog, this turns this functionality \n"
-        "                        off and writes to stdout. \n\n"
-        "  -n, --name=NAME       Applies a name to the service, this is good for \n"
-        "                        keeping track of different groups/organizations \n"
-        "                        running on seprate instances. This can be seen via the \n"
-        "                        statistics interface \n\n"
-        "  -D                    Daemonize (rawr). \n";
+	"Options: \n"
+	"   -h:        Help me!!\n"
+	"   -v:        Version\n"
+	"   -c <file>: Configuration file\n";
 
-
-    while ((c =
-            getopt_long(argc, argv, "vDl:USAb:p:P:t:x:y:z:n:Lr:R:l:N:c:",
-                        long_options, &option_index)) > 0) {
-        gchar         **splitter;
-        switch (c) {
-        case 'c':
-            load_config(optarg);
-            break;
-        case 'U':
-        case conf_no_uri_check:
-            uri_check = 0;
-            break;
-        case 'S':
-        case conf_no_site_check:
-            site_check = 0;
-            break;
-        case 'A':
-        case conf_no_addr_check:
-            addr_check = 0;
-            break;
-        case 'P':
-        case conf_server_port:
-            server_port = atoi(optarg);
-            break;
-        case 't':
-        case conf_soft_block_timeout:
-            soft_block_timeout = atoll(optarg);
-            break;
-        case 'y':
-        case conf_uri_block_ratio:
-            splitter = g_strsplit(optarg, ":", 2);
-            uri_ratio.num_connections = atoll(splitter[0]);
-            uri_ratio.timelimit = atoll(splitter[1]);
-            g_strfreev(splitter);
-            break;
-        case 'x':
-        case conf_site_block_ratio:
-            splitter = g_strsplit(optarg, ":", 2);
-            site_ratio.num_connections = atoll(splitter[0]);
-            site_ratio.timelimit = atoll(splitter[1]);
-            g_strfreev(splitter);
-            break;
-        case 'z':
-        case conf_addr_block_ratio:
-            splitter = g_strsplit(optarg, ":", 2);
-            addr_ratio.num_connections = atoll(splitter[0]);
-            addr_ratio.timelimit = atoll(splitter[1]);
-            g_strfreev(splitter);
-            break;
-        case 'b':
-        case conf_bind_addr:
-            bind_addr = optarg;
-            break;
-        case 'p':
-        case conf_bind_port:
-            bind_port = atoi(optarg);
-            break;
-        case 'D':
-            rundaemon = 1;
-            break;
-        case 'n':
-        case conf_name:
-            process_name = optarg;
-            break;
-        case 'L':
-        case conf_no_syslog:
-            syslog_enabled = 0;
-            break;
-        case 'r':
-        case conf_rbl_zone:
-            rbl_zone = strdup(optarg);
-            break;
-        case 'N':
-        case conf_rbl_negcache_timeout:
-            rbl_negcache_timeout = atoi(optarg);
-            break;
-        case 'R':
-        case conf_rbl_ns:
-            rbl_ns = strdup(optarg);
-            break;
-        case 'l':
-        case conf_rbl_max_queries:
-            rbl_max_queries = atoi(optarg);
-            break;
-        default:
-            printf("Version: %s (%s)\n", VERSION, VERSION_NAME);
-            printf("Usage: %s [opts]\n%s", argv[0], help);
-            exit(1);
-        }
+    while ((c = getopt (argc, argv, "hvc:")) != -1)
+    {
+	switch(c)
+	{
+	    case 'c':
+		load_config(optarg);
+		break;
+	    case 'v':
+		printf("%s (%s)\n", VERSION, VERSION_NAME);
+		exit(1);
+	    case 'h':
+		printf("Usage: %s [opts]\n%s", argv[0], help);
+		exit(1);
+	    default:
+		printf("Unknown option %s\n", optarg);
+		exit(1);
+	}
     }
 
     return 0;
@@ -1409,11 +1388,6 @@ httpd_put_connections(struct evhttp_request *req, void *args)
 {
     struct evbuffer *buf;
 
-#if 0
-    TAILQ_FOREACH(header, req->output_headers, req->next) {
-        printf("%s -> %s\n", key, header->value);
-    }
-#endif
     buf = evbuffer_new();
 
     evbuffer_add_printf(buf, "\nCurrent active connections\n");
@@ -1685,6 +1659,25 @@ log_startup(void)
 
 }
 
+void segvfunc(int sig)
+{
+    int c, i;
+    void *funcs[128];
+    char **names;
+
+    c = backtrace(funcs, 128);
+    names = backtrace_symbols(funcs, c);
+
+    for (i = 0; i < c; i++)
+	LOG("%s", names[i]);
+
+    free(names);
+
+    signal(sig, SIG_DFL);
+    kill(getpid(), sig);
+}
+
+
 int
 main(int argc, char **argv)
 {
@@ -1693,6 +1686,11 @@ main(int argc, char **argv)
     event_init();
     rbl_init();
     qps_init();
+
+    signal(SIGSEGV, segvfunc);
+
+    /* XXX */
+    randdata = g_rand_new();
 
     if (webserver_init() == -1) {
         LOG("ERROR: Could not bind webserver port: %s", strerror(errno));

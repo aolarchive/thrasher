@@ -11,6 +11,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <sys/sysinfo.h>
+#include <execinfo.h>
 #define __FAVOR_BSD
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -27,6 +28,7 @@
 #include <event.h>
 #include <evhttp.h>
 #include <evdns.h>
+
 #include "iov.h"
 
 #define LOG(x,s...) do { \
@@ -74,8 +76,8 @@ typedef struct query client_query_t;
  * Server structures                   *
  ***************************************/
 typedef struct block_ratio {
-    uint32_t        num_connections;
-    uint32_t        timelimit;
+    uint16_t        num_connections;
+    uint16_t        timelimit;
 } block_ratio_t;
 
 typedef struct query {
@@ -119,7 +121,9 @@ typedef struct blocked_node {
     uint32_t        saddr;
     uint32_t        count;
     uint32_t        first_seen_addr;
+		block_ratio_t   ratio;
     struct event    timeout;
+		struct event    recent_block_timeout;
 } blocked_node_t;
 
 typedef struct rbl_negcache {
@@ -164,8 +168,9 @@ void make_rbl_query(uint32_t addr);
 
 void remove_holddown(uint32_t addr);
 void expire_bnode(int sock, short which, blocked_node_t * bnode);
+void expire_recent_bnode(int sock, short which, blocked_node_t *bnode);
 void expire_stats_node(int sock, short which, qstats_t * stat_node);
-blocked_node_t *block_addr(client_conn_t * conn, qstats_t * stats);
+blocked_node_t *block_addr(client_conn_t * conn, uint32_t addr);
 int update_thresholds(client_conn_t * conn, char *key, stat_type_t type);
 int do_thresholding(client_conn_t * conn);
 
