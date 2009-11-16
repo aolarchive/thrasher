@@ -160,7 +160,7 @@ slide_ratios(blocked_node_t *bnode)
             last_conn++;
 
         if (maximum_random_ratio.timelimit == last_time)
-            last_time++;
+            last_time--;
 
         last_conn = g_rand_int_range(randdata,
                 minimum_random_ratio.num_connections,
@@ -180,7 +180,6 @@ slide_ratios(blocked_node_t *bnode)
 	last_time = g_rand_int_range(randdata,
 		minimum_random_ratio.timelimit,
 		maximum_random_ratio.timelimit);
-
     }
     
 #ifdef DEBUG
@@ -1138,7 +1137,6 @@ server_driver(int sock, short which, void *args)
         inet_ntoa(*(struct in_addr *) &new_conn->conn_addr),
         ntohs(new_conn->conn_port));
 
-
     current_connections =
         g_slist_prepend(current_connections, (gpointer) new_conn);
 
@@ -1689,7 +1687,6 @@ main(int argc, char **argv)
 
     signal(SIGSEGV, segvfunc);
 
-    /* XXX */
     randdata = g_rand_new();
 
     if (webserver_init() == -1) {
