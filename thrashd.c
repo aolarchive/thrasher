@@ -345,10 +345,14 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
     LOG("expired address %s",
         inet_ntoa(*(struct in_addr *) &bnode->saddr));
 
+    LOG("%d", which);
     evtimer_del(&bnode->timeout);
     remove_holddown(bnode->saddr);
 
-    if (recently_blocked)
+    /* which will tell us whether this is a timer or not,
+       since manual removes will set which to 0, we skip
+       recently_blocked insert */
+    if (recently_blocked && which)
     {
 	/* if we have our moving ratios enabled we 
 	   put the blocked node into recently_blocked

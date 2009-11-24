@@ -312,6 +312,7 @@ main(int argc, char **argv)
 
     for (i=0;i<20;i++)
     {
+	printf("%d ", i);
 	client_query_t *query = create_v1_query("abc", "/"); 
 	thrash_client_lookup(lc, 1, query);
 	event_base_loop(evbase, 0);
