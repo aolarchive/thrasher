@@ -4,6 +4,8 @@
 #define MAX_URI_SIZE  1500
 #define MAX_HOST_SIZE 1500
 
+/* blah */
+
 static char    *process_name;
 static uint32_t uri_check;
 static uint32_t site_check;
