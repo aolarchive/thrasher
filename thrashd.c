@@ -136,26 +136,25 @@ set_nb(int sock)
 }
 
 void
-slide_ratios(blocked_node_t *bnode)
+slide_ratios(blocked_node_t * bnode)
 {
-    uint32_t last_conn, last_time;
+    uint32_t        last_conn,
+                    last_time;
 
-    if(!bnode)
+    if (!bnode)
         return;
 
     last_conn = bnode->ratio.num_connections;
     last_time = bnode->ratio.timelimit;
 
-    if (!last_conn && !last_time)
-    {
-        last_conn = g_rand_int_range(randdata, 
-                minimum_random_ratio.num_connections,
-                maximum_random_ratio.num_connections);
-	last_time = g_rand_int_range(randdata,
-		minimum_random_ratio.timelimit,
-		maximum_random_ratio.timelimit);
-    }
-    else {
+    if (!last_conn && !last_time) {
+        last_conn = g_rand_int_range(randdata,
+                                     minimum_random_ratio.num_connections,
+                                     maximum_random_ratio.num_connections);
+        last_time = g_rand_int_range(randdata,
+                                     minimum_random_ratio.timelimit,
+                                     maximum_random_ratio.timelimit);
+    } else {
         if (minimum_random_ratio.num_connections == last_conn)
             last_conn--;
 
@@ -163,28 +162,26 @@ slide_ratios(blocked_node_t *bnode)
             last_time++;
 
         last_conn = g_rand_int_range(randdata,
-                minimum_random_ratio.num_connections,
-                last_conn);
+                                     minimum_random_ratio.num_connections,
+                                     last_conn);
 
         last_time = g_rand_int_range(randdata,
-		last_time, maximum_random_ratio.timelimit);
+                                     last_time,
+                                     maximum_random_ratio.timelimit);
     }
 
     if (last_conn <= minimum_random_ratio.num_connections ||
-            last_time >= maximum_random_ratio.timelimit)
-    {
+        last_time >= maximum_random_ratio.timelimit) {
         last_conn = g_rand_int_range(randdata,
-                minimum_random_ratio.num_connections,
-                maximum_random_ratio.num_connections);
+                                     minimum_random_ratio.num_connections,
+                                     maximum_random_ratio.num_connections);
 
-	last_time = g_rand_int_range(randdata,
-		minimum_random_ratio.timelimit,
-		maximum_random_ratio.timelimit);
+        last_time = g_rand_int_range(randdata,
+                                     minimum_random_ratio.timelimit,
+                                     maximum_random_ratio.timelimit);
     }
-    
 #ifdef DEBUG
-    LOG("our new random ratio is %d:%d",
-	    last_conn, last_time);
+    LOG("our new random ratio is %d:%d", last_conn, last_time);
 #endif
     bnode->ratio.num_connections = last_conn;
     bnode->ratio.timelimit = last_time;
@@ -346,54 +343,63 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
     evtimer_del(&bnode->timeout);
     remove_holddown(bnode->saddr);
 
-    /* which will tell us whether this is a timer or not,
-       since manual removes will set which to 0, we skip
-       recently_blocked insert */
-    if (recently_blocked && which)
-    {
-	/* if we have our moving ratios enabled we 
-	   put the blocked node into recently_blocked
-	*/
-	struct timeval tv;
+    /*
+     * which will tell us whether this is a timer or not,
+     * since manual removes will set which to 0, we skip
+     * recently_blocked insert 
+     */
+    if (recently_blocked && which) {
+        /*
+         * if we have our moving ratios enabled we 
+         * put the blocked node into recently_blocked
+         */
+        struct timeval  tv;
 
-	evtimer_del(&bnode->recent_block_timeout);
+        evtimer_del(&bnode->recent_block_timeout);
 
-	/* slide our windows around */
-	slide_ratios(bnode);
+        /*
+         * slide our windows around 
+         */
+        slide_ratios(bnode);
 
-	/* reset our count */
-	bnode->count = 0;
+        /*
+         * reset our count 
+         */
+        bnode->count = 0;
 
-	/* load this guy up into our recently blocked list */
-	g_tree_insert(recently_blocked, 
-		&bnode->saddr, bnode);
+        /*
+         * load this guy up into our recently blocked list 
+         */
+        g_tree_insert(recently_blocked, &bnode->saddr, bnode);
 
-	/* set our timeout to the global */
-	tv.tv_sec = recently_blocked_timeout;
-	tv.tv_usec = 0;
+        /*
+         * set our timeout to the global 
+         */
+        tv.tv_sec = recently_blocked_timeout;
+        tv.tv_usec = 0;
 
-	evtimer_set(&bnode->recent_block_timeout,
-		(void *)expire_recent_bnode, bnode);
-	evtimer_add(&bnode->recent_block_timeout, &tv);
+        evtimer_set(&bnode->recent_block_timeout,
+                    (void *) expire_recent_bnode, bnode);
+        evtimer_add(&bnode->recent_block_timeout, &tv);
 
 #if DEBUG
-	LOG("Placing %s into recently blocked list with a ratio of %d:%d",
-		inet_ntoa(*(struct in_addr *) &bnode->saddr),
-		    bnode->ratio.num_connections, bnode->ratio.timelimit);
+        LOG("Placing %s into recently blocked list with a ratio of %d:%d",
+            inet_ntoa(*(struct in_addr *) &bnode->saddr),
+            bnode->ratio.num_connections, bnode->ratio.timelimit);
 #endif
-	return;
+        return;
     }
 
     free(bnode);
 }
 
 void
-expire_recent_bnode(int sock, short which, blocked_node_t *bnode)
+expire_recent_bnode(int sock, short which, blocked_node_t * bnode)
 {
 
 #ifdef DEBUG
     LOG("expire_recent_bnode(%p) %s",
-	    bnode, inet_ntoa(*(struct in_addr *) &bnode->saddr));
+        bnode, inet_ntoa(*(struct in_addr *) &bnode->saddr));
 #endif
 
     evtimer_del(&bnode->recent_block_timeout);
@@ -424,7 +430,7 @@ expire_stats_node(int sock, short which, qstats_t * stat_node)
 }
 
 blocked_node_t *
-block_addr(client_conn_t *conn, uint32_t addr)
+block_addr(client_conn_t * conn, uint32_t addr)
 {
     blocked_node_t *bnode;
     struct timeval  tv;
@@ -605,56 +611,70 @@ do_thresholding(client_conn_t * conn)
         return 1;
     }
 
-    if (recently_blocked && (bnode = 
-		g_tree_lookup(recently_blocked, &conn->query.saddr)))
-    {
-	/* this address has been recently expired from the current_blocks
-	   and placed into the recently_blocked list. */
-	if(bnode->count++ == 0)
-	{
-	    /* This is the first packet we have seen from this address 
-	       since it was put into the recently_blocked tree. */
-	    evtimer_del(&bnode->recent_block_timeout);
+    if (recently_blocked && (bnode =
+                             g_tree_lookup(recently_blocked,
+                                           &conn->query.saddr))) {
+        /*
+         * this address has been recently expired from the current_blocks
+         * and placed into the recently_blocked list. 
+         */
+        if (bnode->count++ == 0) {
+            /*
+             * This is the first packet we have seen from this address 
+             * since it was put into the recently_blocked tree. 
+             */
+            evtimer_del(&bnode->recent_block_timeout);
 
 
-	    /* since we only end up in the recently_blocked list after 
-	       a node has been blocked, then expired via expire_bnode(), 
-	       expire_bnode() shifts around the ratios (bnode->ratio)
-	       randomly. We use this data to set our packets/window */
-	    tv.tv_sec  = bnode->ratio.timelimit;
-	    tv.tv_usec = 0;
+            /*
+             * since we only end up in the recently_blocked list after 
+             * a node has been blocked, then expired via expire_bnode(), 
+             * expire_bnode() shifts around the ratios (bnode->ratio)
+             * randomly. We use this data to set our packets/window 
+             */
+            tv.tv_sec = bnode->ratio.timelimit;
+            tv.tv_usec = 0;
 
-	    /* if this timer is every reached, it means that we never
-	       hit our ratio, thus we need to expire it from the
-	       recently_blocked list */ 
+            /*
+             * if this timer is every reached, it means that we never
+             * hit our ratio, thus we need to expire it from the
+             * recently_blocked list 
+             */
 
-	    evtimer_set(&bnode->recent_block_timeout,
-		    (void *)expire_recent_bnode, bnode);
-	    evtimer_add(&bnode->recent_block_timeout, &tv);
-	}
+            evtimer_set(&bnode->recent_block_timeout,
+                        (void *) expire_recent_bnode, bnode);
+            evtimer_add(&bnode->recent_block_timeout, &tv);
+        }
 
-	if (bnode->count >= bnode->ratio.num_connections)
-	{
-	    /* this connection deserves to be blocked */
-	    
-	    /* remove from our recently blocked list */
-	    evtimer_del(&bnode->recent_block_timeout);
-	    g_tree_remove(recently_blocked, &conn->query.saddr);
+        if (bnode->count >= bnode->ratio.num_connections) {
+            /*
+             * this connection deserves to be blocked 
+             */
 
-	    /* insert into our block tree */
-	    g_tree_insert(current_blocks, &bnode->saddr, bnode);
+            /*
+             * remove from our recently blocked list 
+             */
+            evtimer_del(&bnode->recent_block_timeout);
+            g_tree_remove(recently_blocked, &conn->query.saddr);
 
-	    /* set our timeout to the normal timelimit */
-	    tv.tv_sec  = soft_block_timeout;
-	    tv.tv_usec = 0;
+            /*
+             * insert into our block tree 
+             */
+            g_tree_insert(current_blocks, &bnode->saddr, bnode);
 
-	    evtimer_set(&bnode->timeout, (void *)expire_bnode, bnode);
-	    evtimer_add(&bnode->timeout, &tv);
+            /*
+             * set our timeout to the normal timelimit 
+             */
+            tv.tv_sec = soft_block_timeout;
+            tv.tv_usec = 0;
 
-	    return 1;
-	}
+            evtimer_set(&bnode->timeout, (void *) expire_bnode, bnode);
+            evtimer_add(&bnode->timeout, &tv);
 
-	return 0;
+            return 1;
+        }
+
+        return 0;
     }
 
     /*
@@ -1019,20 +1039,25 @@ client_read_injection(int sock, short which, client_conn_t * conn)
             break;
         }
 
-	/* this is starting to get a little hacky I think. We can re-factor
-	   if I ever end up doing any other types of features */
-	if (recently_blocked && 
-		(bnode = g_tree_lookup(recently_blocked , &saddr)))
-	    /* remove the bnode from the recently blocked list 
-	       so the bnode is now set to this instead of a new
-	       allocd version */
-	{
-	    g_tree_remove(recently_blocked, &saddr);
-	    /* unset the recently_blocked timeout */
-	    evtimer_del(&bnode->recent_block_timeout);
-	}
-	else
-	    bnode = malloc(sizeof(blocked_node_t));
+        /*
+         * this is starting to get a little hacky I think. We can re-factor
+         * if I ever end up doing any other types of features 
+         */
+        if (recently_blocked &&
+            (bnode = g_tree_lookup(recently_blocked, &saddr)))
+            /*
+             * remove the bnode from the recently blocked list 
+             * so the bnode is now set to this instead of a new
+             * allocd version 
+             */
+        {
+            g_tree_remove(recently_blocked, &saddr);
+            /*
+             * unset the recently_blocked timeout 
+             */
+            evtimer_del(&bnode->recent_block_timeout);
+        } else
+            bnode = malloc(sizeof(blocked_node_t));
 
         if (!bnode) {
             LOG("Out of memory: %s", strerror(errno));
@@ -1053,8 +1078,8 @@ client_read_injection(int sock, short which, client_conn_t * conn)
         break;
 
     case TYPE_REMOVE:
-	if (!(bnode = g_tree_lookup(current_blocks, &saddr)))
-	    break;
+        if (!(bnode = g_tree_lookup(current_blocks, &saddr)))
+            break;
         expire_bnode(0, 0, bnode);
         break;
     }
@@ -1112,7 +1137,9 @@ client_read_type(int sock, short which, client_conn_t * conn)
         event_add(&conn->event, 0);
         break;
     case TYPE_THRESHOLD_v3:
-	/* just like v1 but with a 32bit identification header */
+        /*
+         * just like v1 but with a 32bit identification header 
+         */
         event_set(&conn->event, sock, EV_READ,
                   (void *) client_read_v3_header, conn);
         event_add(&conn->event, 0);
@@ -1222,7 +1249,7 @@ load_config(const char *file)
     typedef enum {
         _c_f_t_str = 1,
         _c_f_t_int,
-	_c_f_t_trie,
+        _c_f_t_trie,
         _c_f_t_ratio
     } _c_f_t;
 
@@ -1252,17 +1279,18 @@ load_config(const char *file)
                 &rbl_negcache_timeout}, {
         "thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
         "thrashd", "rbl-max-query", _c_f_t_int, &rbl_max_queries}, {
-	"thrashd", "rand-ratio", _c_f_t_trie, &recently_blocked}, {  
-        "thrashd", "min-rand-ratio", _c_f_t_ratio, &minimum_random_ratio}, {
-	"thrashd", "max-rand-ratio", _c_f_t_ratio, &maximum_random_ratio}, {    
-        "thrashd", "recently-blocked-timeout", _c_f_t_int, 
-	        &recently_blocked_timeout}, {
+        "thrashd", "rand-ratio", _c_f_t_trie, &recently_blocked}, {
+        "thrashd", "min-rand-ratio", _c_f_t_ratio, &minimum_random_ratio},
+        {
+        "thrashd", "max-rand-ratio", _c_f_t_ratio, &maximum_random_ratio},
+        {
+        "thrashd", "recently-blocked-timeout", _c_f_t_int,
+                &recently_blocked_timeout}, {
         "thrashd", "rbl-negative-cache-timeout", _c_f_t_int,
-	        &rbl_negcache_timeout}, {
+                &rbl_negcache_timeout}, {
         "thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, {
-	"thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
-	"thrashd", "rbl-max-queries", _c_f_t_int,
-                &rbl_max_queries}, {	
+        "thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
+        "thrashd", "rbl-max-queries", _c_f_t_int, &rbl_max_queries}, {
         NULL, NULL, 0, NULL}
     };
 
@@ -1270,17 +1298,16 @@ load_config(const char *file)
 
     flags = G_KEY_FILE_KEEP_COMMENTS;
 
-    if (!g_key_file_load_from_file(config_file, file, flags, &error))
-    {
-	LOG("Error loading config: ");
-	exit(1);
+    if (!g_key_file_load_from_file(config_file, file, flags, &error)) {
+        LOG("Error loading config: ");
+        exit(1);
     }
 
     for (i = 0; c_f_in[i].parent != NULL; i++) {
         char          **svar;
         char           *str;
         int            *ivar;
-	GTree          **tvar;
+        GTree         **tvar;
         block_ratio_t  *ratio;
         gchar         **splitter;
 
@@ -1296,10 +1323,10 @@ load_config(const char *file)
                                           c_f_in[i].parent,
                                           c_f_in[i].key, NULL);
             break;
-	case _c_f_t_trie:
-	    tvar = (GTree **) c_f_in[i].var;
-	    *tvar = g_tree_new((GCompareFunc) uint32_cmp);
-	    break;
+        case _c_f_t_trie:
+            tvar = (GTree **) c_f_in[i].var;
+            *tvar = g_tree_new((GCompareFunc) uint32_cmp);
+            break;
         case _c_f_t_int:
             ivar = (int *) c_f_in[i].var;
             *ivar = g_key_file_get_integer(config_file,
@@ -1332,7 +1359,7 @@ parse_args(int argc, char **argv)
     int             c,
                     option_index = 0;
 
-    static char *help = 
+    static char    *help =
         "Copyright AOL LLC 2008-2009\n\n"
         "The main goal of this project is to allow a farm of autonomous servers to \n"
         "collect and block malicious addresses maliciously attacking services.\n\n"
@@ -1340,28 +1367,25 @@ parse_args(int argc, char **argv)
         "Apache (unable to collect stats between forks in mpm_worker, unable to sync \n"
         "stats on a load balanced farm) this has turned into a service that many \n"
         "applications can use.\n\n"
-	"Options: \n"
-	"   -h:        Help me!!\n"
-	"   -v:        Version\n"
-	"   -c <file>: Configuration file\n";
+        "Options: \n"
+        "   -h:        Help me!!\n"
+        "   -v:        Version\n" "   -c <file>: Configuration file\n";
 
-    while ((c = getopt (argc, argv, "hvc:")) != -1)
-    {
-	switch(c)
-	{
-	    case 'c':
-		load_config(optarg);
-		break;
-	    case 'v':
-		printf("%s (%s)\n", VERSION, VERSION_NAME);
-		exit(1);
-	    case 'h':
-		printf("Usage: %s [opts]\n%s", argv[0], help);
-		exit(1);
-	    default:
-		printf("Unknown option %s\n", optarg);
-		exit(1);
-	}
+    while ((c = getopt(argc, argv, "hvc:")) != -1) {
+        switch (c) {
+        case 'c':
+            load_config(optarg);
+            break;
+        case 'v':
+            printf("%s (%s)\n", VERSION, VERSION_NAME);
+            exit(1);
+        case 'h':
+            printf("Usage: %s [opts]\n%s", argv[0], help);
+            exit(1);
+        default:
+            printf("Unknown option %s\n", optarg);
+            exit(1);
+        }
     }
 
     return 0;
@@ -1693,17 +1717,19 @@ log_startup(void)
 
 }
 
-void segvfunc(int sig)
+void
+segvfunc(int sig)
 {
-    int c, i;
-    void *funcs[128];
-    char **names;
+    int             c,
+                    i;
+    void           *funcs[128];
+    char          **names;
 
     c = backtrace(funcs, 128);
     names = backtrace_symbols(funcs, c);
 
     for (i = 0; i < c; i++)
-	LOG("%s", names[i]);
+        LOG("%s", names[i]);
 
     free(names);
 
