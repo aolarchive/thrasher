@@ -65,8 +65,8 @@ parse_args(int argc, char **argv)
     return jmp;
 }
 
-void
-resp_callback(thrash_client_t * cli, uint8_t resp)
+void 
+resp_callback(thrash_client_t * cli, thrash_resp_t *resp)
 {
     printf("Done!\n");
 }

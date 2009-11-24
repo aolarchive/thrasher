@@ -162,8 +162,6 @@ slide_ratios(blocked_node_t *bnode)
         if (maximum_random_ratio.timelimit == last_time)
             last_time++;
 
-	printf("%u %u\n", last_conn, last_time);
-
         last_conn = g_rand_int_range(randdata,
                 minimum_random_ratio.num_connections,
                 last_conn);
@@ -345,7 +343,6 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
     LOG("expired address %s",
         inet_ntoa(*(struct in_addr *) &bnode->saddr));
 
-    LOG("%d", which);
     evtimer_del(&bnode->timeout);
     remove_holddown(bnode->saddr);
 
@@ -359,14 +356,6 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
 	*/
 	struct timeval tv;
 
-	/* if we already have it in our recently_blocked,
-	   just return (probably from an inject packet */
-	if (g_tree_lookup(recently_blocked, &bnode->saddr))
-	{
-	    printf("GOOD GOOD ARE YOU SERIOUS?\n");
-	    return;
-	}
-
 	evtimer_del(&bnode->recent_block_timeout);
 
 	/* slide our windows around */
@@ -379,6 +368,7 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
 	g_tree_insert(recently_blocked, 
 		&bnode->saddr, bnode);
 
+	/* set our timeout to the global */
 	tv.tv_sec = recently_blocked_timeout;
 	tv.tv_usec = 0;
 
@@ -618,18 +608,28 @@ do_thresholding(client_conn_t * conn)
     if (recently_blocked && (bnode = 
 		g_tree_lookup(recently_blocked, &conn->query.saddr)))
     {
+	/* this address has been recently expired from the current_blocks
+	   and placed into the recently_blocked list. */
 	if(bnode->count++ == 0)
 	{
-	    /* since this is the first packet it recv'd after being
-	       recently blocked, delete the bnode timeout and process
-	       as normal with expire_bnode for timeout cb */ 
+	    /* This is the first packet we have seen from this address 
+	       since it was put into the recently_blocked tree. */
 	    evtimer_del(&bnode->recent_block_timeout);
 
+
+	    /* since we only end up in the recently_blocked list after 
+	       a node has been blocked, then expired via expire_bnode(), 
+	       expire_bnode() shifts around the ratios (bnode->ratio)
+	       randomly. We use this data to set our packets/window */
 	    tv.tv_sec  = bnode->ratio.timelimit;
 	    tv.tv_usec = 0;
 
+	    /* if this timer is every reached, it means that we never
+	       hit our ratio, thus we need to expire it from the
+	       recently_blocked list */ 
+
 	    evtimer_set(&bnode->recent_block_timeout,
-		    (void *)expire_bnode, bnode);
+		    (void *)expire_recent_bnode, bnode);
 	    evtimer_add(&bnode->recent_block_timeout, &tv);
 	}
 
@@ -1267,10 +1267,14 @@ load_config(const char *file)
     };
 
     config_file = g_key_file_new();
+
     flags = G_KEY_FILE_KEEP_COMMENTS;
 
     if (!g_key_file_load_from_file(config_file, file, flags, &error))
-        return;
+    {
+	LOG("Error loading config: ");
+	exit(1);
+    }
 
     for (i = 0; c_f_in[i].parent != NULL; i++) {
         char          **svar;
@@ -1314,6 +1318,8 @@ load_config(const char *file)
             break;
         }
     }
+
+    g_key_file_free(config_file);
 }
 
 int

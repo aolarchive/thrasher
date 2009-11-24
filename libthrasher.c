@@ -158,6 +158,8 @@ create_v1_query(const char *host, const char *uri)
     return query;
 }
 
+#define create_v2_query() do { create_v1_query(NULL, NULL) } while(0); 
+
 client_query_t *
 create_v3_query(const char *host, const char *uri, uint32_t id) 
 {
@@ -310,11 +312,14 @@ main(int argc, char **argv)
     thrash_client_settype(lc, TYPE_THRESHOLD_v1); 
     thrash_client_connect(lc); 
 
-    for (i=0;i<20;i++)
+    for (i=0;i<30;i++)
     {
-	printf("%d ", i);
-	client_query_t *query = create_v1_query("abc", "/"); 
-	thrash_client_lookup(lc, 1, query);
+	client_query_t *query;
+
+	printf("pkt:%d ", i);
+
+	query = create_v1_query("abc", "/"); 
+	thrash_client_lookup(lc, i, query);
 	event_base_loop(evbase, 0);
     }
     
