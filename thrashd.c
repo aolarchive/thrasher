@@ -157,10 +157,12 @@ slide_ratios(blocked_node_t *bnode)
     }
     else {
         if (minimum_random_ratio.num_connections == last_conn)
-            last_conn++;
+            last_conn--;
 
         if (maximum_random_ratio.timelimit == last_time)
-            last_time--;
+            last_time++;
+
+	printf("%u %u\n", last_conn, last_time);
 
         last_conn = g_rand_int_range(randdata,
                 minimum_random_ratio.num_connections,
@@ -171,7 +173,7 @@ slide_ratios(blocked_node_t *bnode)
     }
 
     if (last_conn <= minimum_random_ratio.num_connections ||
-            last_time >= maximum_random_ratio.timelimit+1)
+            last_time >= maximum_random_ratio.timelimit)
     {
         last_conn = g_rand_int_range(randdata,
                 minimum_random_ratio.num_connections,
@@ -352,6 +354,14 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
 	   put the blocked node into recently_blocked
 	*/
 	struct timeval tv;
+
+	/* if we already have it in our recently_blocked,
+	   just return (probably from an inject packet */
+	if (g_tree_lookup(recently_blocked, &bnode->saddr))
+	{
+	    printf("GOOD GOOD ARE YOU SERIOUS?\n");
+	    return;
+	}
 
 	evtimer_del(&bnode->recent_block_timeout);
 
@@ -863,6 +873,10 @@ client_read_v3_header(int sock, short which, client_conn_t * conn)
     memcpy(&conn->id, conn->data.buf, sizeof(uint32_t));
     reset_iov(&conn->data);
 
+#ifdef DEBUG
+    LOG("Got ident %u", ntohs(conn->id));
+#endif
+
     /*
      * go back to reading a v1 like packet 
      */
@@ -1001,7 +1015,20 @@ client_read_injection(int sock, short which, client_conn_t * conn)
             break;
         }
 
-        bnode = malloc(sizeof(blocked_node_t));
+	/* this is starting to get a little hacky I think. We can re-factor
+	   if I ever end up doing any other types of features */
+	if (recently_blocked && 
+		(bnode = g_tree_lookup(recently_blocked , &saddr)))
+	    /* remove the bnode from the recently blocked list 
+	       so the bnode is now set to this instead of a new
+	       allocd version */
+	{
+	    g_tree_remove(recently_blocked, &saddr);
+	    /* unset the recently_blocked timeout */
+	    evtimer_del(&bnode->recent_block_timeout);
+	}
+	else
+	    bnode = malloc(sizeof(blocked_node_t));
 
         if (!bnode) {
             LOG("Out of memory: %s", strerror(errno));
@@ -1022,9 +1049,8 @@ client_read_injection(int sock, short which, client_conn_t * conn)
         break;
 
     case TYPE_REMOVE:
-        if (!(bnode = g_tree_lookup(current_blocks, &saddr)))
-            break;
-
+	if (!(bnode = g_tree_lookup(current_blocks, &saddr)))
+	    break;
         expire_bnode(0, 0, bnode);
         break;
     }

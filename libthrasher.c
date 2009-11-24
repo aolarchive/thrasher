@@ -74,13 +74,36 @@ thrash_client_read_resp(int sock, short which, thrash_client_t * cli)
 {
     uint8_t         resp;
     int             bytes_read;
+    thrash_resp_t  *tresp;
 
-    bytes_read = recv(sock, &resp, 1, 0);
+    tresp = malloc(sizeof(*tresp));
+    assert(tresp!=NULL);
 
-    if (bytes_read != 1)
-        exit(0);
+    if(cli->type == TYPE_THRESHOLD_v3)
+    {
+	char *data = malloc(5);
 
-    cli->resp_cb(cli, resp);
+	bytes_read = recv(sock, data, 5, 0); 
+	assert(bytes_read == 5);
+
+	/* copy over the identifier for v3 packets */
+	memcpy(&tresp->ident, data, 4);
+	memcpy(&tresp->permit, &data[4], 1); 
+
+	free(data);
+    }
+    else if (cli->type == TYPE_INJECT ||
+	    cli->type == TYPE_REMOVE)
+    {
+    }
+    else
+    {
+	bytes_read = recv(sock, &resp, 1, 0);
+	assert(bytes_read == 1);
+	tresp->permit = resp;
+    }
+
+    cli->resp_cb(cli, tresp);
 }
 
 void
@@ -135,12 +158,29 @@ create_v1_query(const char *host, const char *uri)
     return query;
 }
 
+client_query_t *
+create_v3_query(const char *host, const char *uri, uint32_t id) 
+{
+    client_query_t *query;
+
+
+    query = create_v1_query(host, uri);
+
+    if (!query)
+        return NULL;
+
+    query->ident = id; 
+
+    return query;
+}
+
 void
 thrash_client_lookup(thrash_client_t * cli, uint32_t addr, void *data)
 {
     client_query_t *q;
     uint16_t        hlen,
                     ulen;
+    uint32_t        ident;
 
     q = (client_query_t *) data;
 
@@ -181,6 +221,31 @@ thrash_client_lookup(thrash_client_t * cli, uint32_t addr, void *data)
         memcpy(cli->data.buf, &cli->type, 1);
         memcpy(&cli->data.buf[1], &addr, 4);
         break;
+    case TYPE_THRESHOLD_v3:
+	if (!q)
+	    return;
+
+	hlen  = htons(q->host_len);
+	ulen  = htons(q->uri_len);
+	ident = htonl(q->ident);
+
+	initialize_iov(&cli->data, 
+		sizeof(uint8_t)  + // type
+		sizeof(uint32_t) + // identifier
+		sizeof(uint32_t) + // address
+		sizeof(uint16_t) + // hostlen
+		sizeof(uint16_t) + // urilen
+		q->host_len + q->uri_len);
+
+	memcpy(cli->data.buf, &cli->type, 1);
+	memcpy(&cli->data.buf[1], &q->ident, sizeof(uint32_t)); 
+	memcpy(&cli->data.buf[5], &addr, sizeof(uint32_t));
+	memcpy(&cli->data.buf[9], &hlen, sizeof(uint16_t));
+	memcpy(&cli->data.buf[11], &ulen, sizeof(uint16_t));
+	memcpy(&cli->data.buf[13], q->host, q->host_len);
+	memcpy(&cli->data.buf[13 + q->host_len], q->uri, q->uri_len);
+	break;
+
     }
 
     cli->addr_lookup = addr;
@@ -201,18 +266,33 @@ free_thrash_client(thrash_client_t * cli)
     free(cli);
 }
 
-#ifdef LIBTHRASHER_MAIN
-void
-resp_callback(thrash_client_t * cli, uint8_t resp)
+void 
+free_thrash_resp(thrash_resp_t *resp)
 {
-    if (resp)
-        printf("%u is blocked!\n", cli->addr_lookup);
-    else
-        printf("%u is not blocked\n", cli->addr_lookup);
-
-    free_thrash_client(cli);
-    return;
+    free(resp);
 }
+
+#ifdef LIBTHRASHER_MAIN
+
+void 
+resp_callback(thrash_client_t *cli, thrash_resp_t *resp)
+{
+   if (!resp)
+   {
+      printf("odd response, got null\n");
+      return;
+   }
+
+   if (resp->permit)
+       printf("%u is blocked!\n", cli->addr_lookup);
+   else
+       printf("%u is not blocked\n", cli->addr_lookup);
+
+       
+   event_base_loopbreak(cli->evbase);
+   free_thrash_resp(resp);
+}
+
 
 int
 main(int argc, char **argv)
@@ -222,38 +302,22 @@ main(int argc, char **argv)
 
     evbase = event_init();
 
-    for (i = 0; i <= 10; i++) {
-        /*
-         * create 10 concurrent connections. 
-         */
-        thrash_client_t *lc;
+    thrash_client_t *lc;
+    lc = init_thrash_client(); 
+    lc->evbase = evbase; 
+    lc->resp_cb = resp_callback; 
+    thrash_client_sethost(lc, "127.0.0.1"); 
+    thrash_client_settype(lc, TYPE_THRESHOLD_v1); 
+    thrash_client_connect(lc); 
 
-        lc = init_thrash_client();
-        lc->evbase = evbase;
-        lc->resp_cb = resp_callback;
-
-        thrash_client_sethost(lc, "127.0.0.1");
-        thrash_client_settype(lc, TYPE_THRESHOLD_v2);
-        thrash_client_connect(lc);
-        thrash_client_lookup(lc, i, NULL);
-
-        /*
-         * create a v1 query 
-         */
-        client_query_t *query;
-
-        query = create_v1_query("abc", "/");
-        lc = init_thrash_client();
-        lc->evbase = evbase;
-        lc->resp_cb = resp_callback;
-
-        thrash_client_sethost(lc, "127.0.0.1");
-        thrash_client_settype(lc, TYPE_THRESHOLD_v1);
-        thrash_client_connect(lc);
-        thrash_client_lookup(lc, i, (void *) query);
+    for (i=0;i<20;i++)
+    {
+	client_query_t *query = create_v1_query("abc", "/"); 
+	thrash_client_lookup(lc, 1, query);
+	event_base_loop(evbase, 0);
     }
-
-    event_base_loop(evbase, 0);
+    
+    free_thrash_client(lc);
 
     return 0;
 }

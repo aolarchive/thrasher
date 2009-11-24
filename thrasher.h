@@ -56,6 +56,11 @@ typedef enum {
 /***************************************
  * Client structures                   *
  **************************************/
+typedef struct thrash_resp { 
+    uint8_t permit; 
+    uint32_t ident; 
+} thrash_resp_t;
+
 typedef struct thrash_client {
     char              *host;
     uint16_t           port;
@@ -63,12 +68,14 @@ typedef struct thrash_client {
     thrash_pkt_type    type;
     iov_t              data;
     uint32_t           addr_lookup;
+		void              *userdata;
 #ifndef DISABLE_EVENT
     struct event_base *evbase;
     struct event       event;
 #endif
-    void (*resp_cb) (struct thrash_client *cli, uint8_t resp);
+    void (*resp_cb) (struct thrash_client *cli, thrash_resp_t *resp);
 } thrash_client_t;
+
 
 typedef struct query client_query_t;
 
@@ -84,6 +91,7 @@ typedef struct query {
     uint32_t        saddr;
     uint16_t        host_len;
     uint16_t        uri_len;
+		uint32_t        ident;
     char           *host;
     char           *uri;
 } query_t;
@@ -146,6 +154,8 @@ typedef enum {
 #define thrash_client_setsock(a,b) do { a->sock = b; } while(0);
 #define thrash_client_setevbase(a,b) do { a->evbase = b; \
     event_base_set(b, &a->event); } while(0);
+#define thrash_client_setident(a,b) do { a->ident = b; } while(0);
+
 thrash_client_t * init_thrash_client(void);
 int thrash_client_connect(thrash_client_t *cli);
 void thrash_client_read_resp(int sock, short which, thrash_client_t *cli);

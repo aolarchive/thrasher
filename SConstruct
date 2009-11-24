@@ -2,6 +2,7 @@
 import os, sys
 
 debug = ARGUMENTS.get('debug', 0)
+libthrash_test = ARGUMENTS.get('lthrash-test', 0)
 
 if GetOption('help'):
     sys.exit(1)
@@ -24,3 +25,7 @@ env.Append(LIBS=['event'])
 env.Object('libthrasher', ['libthrasher.c'])
 env.Program('thrashd', ['iov.c', 'thrashd.c'])
 env.Program('master_thrasher', ['libthrasher.c', 'iov.c', 'master_thrasher.c'])
+
+if libthrash_test:
+    env.Append(CFLAGS="-DLIBTHRASHER_MAIN");
+    env.Program('libthrasher-test', ['iov.c', 'libthrasher.c'])
