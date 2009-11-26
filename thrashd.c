@@ -785,6 +785,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
     ioret = write_iov(&conn->data, sock);
 
     if (ioret < 0) {
+	LOG("Hey there");
         free_client_conn(conn);
         close(sock);
         return;
@@ -1059,7 +1060,7 @@ client_read_injection(int sock, short which, client_conn_t * conn)
              */
             evtimer_del(&bnode->recent_block_timeout);
         } else
-            bnode = malloc(sizeof(blocked_node_t));
+            bnode = calloc(sizeof(blocked_node_t), 1);
 
         if (!bnode) {
             LOG("Out of memory: %s", strerror(errno));
@@ -1088,6 +1089,7 @@ client_read_injection(int sock, short which, client_conn_t * conn)
 
 
     free_client_conn(conn);
+    LOG("howdY");
     close(sock);
     return;
 }
@@ -1105,6 +1107,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
 
     if (ioret < 0) {
         free_client_conn(conn);
+	LOG("hey there");
         close(sock);
         return;
     }
@@ -1114,6 +1117,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
          * what? can't get 1 byte? lame 
          */
         free_client_conn(conn);
+	LOG("fuck");
         close(sock);
         return;
     }
@@ -1121,6 +1125,9 @@ client_read_type(int sock, short which, client_conn_t * conn)
     type = *conn->data.buf;
     conn->type = type;
 
+#ifdef DEBUG
+    LOG("type %d", type);
+#endif
     switch (type) {
     case TYPE_THRESHOLD_v1:
         /*
@@ -1154,6 +1161,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
         break;
     default:
         free_client_conn(conn);
+	LOG("shit");
         close(sock);
         return;
     }
