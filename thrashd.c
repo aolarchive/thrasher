@@ -1108,7 +1108,6 @@ client_read_type(int sock, short which, client_conn_t * conn)
 
     if (ioret < 0) {
         free_client_conn(conn);
-	LOG("hey there");
         close(sock);
         return;
     }
@@ -1118,7 +1117,6 @@ client_read_type(int sock, short which, client_conn_t * conn)
          * what? can't get 1 byte? lame 
          */
         free_client_conn(conn);
-	LOG("fuck");
         close(sock);
         return;
     }
@@ -1162,7 +1160,6 @@ client_read_type(int sock, short which, client_conn_t * conn)
         break;
     default:
         free_client_conn(conn);
-	LOG("shit");
         close(sock);
         return;
     }
