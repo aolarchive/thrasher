@@ -13,10 +13,6 @@ extra_cflags = ARGUMENTS.get('CFLAGS')
 extra_libdir = ARGUMENTS.get('LIBDIR')
 static       = ARGUMENTS.get('static')
 
-#if static:
-#    env.Append(LIBS='rt')
-#    env.Append(LINKFLAGS='-static')
-
 if extra_cflags:
     env.Append(CFLAGS=extra_cflags)
 

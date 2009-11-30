@@ -339,8 +339,9 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
     /*
      * blocked node expiration 
      */
-    LOG("expired address %s",
-        inet_ntoa(*(struct in_addr *) &bnode->saddr));
+    LOG("expired address %s after %u hits",
+        inet_ntoa(*(struct in_addr *) &bnode->saddr),
+	bnode->count);
 
     evtimer_del(&bnode->timeout);
     remove_holddown(bnode->saddr);
