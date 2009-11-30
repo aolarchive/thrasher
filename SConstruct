@@ -10,9 +10,14 @@ if GetOption('help'):
 env = Environment()
 
 extra_cflags = ARGUMENTS.get('CFLAGS')
+extra_libdir = ARGUMENTS.get('LIBDIR')
 
 if extra_cflags:
     env.Append(CFLAGS=extra_cflags)
+
+if extra_libdir:
+    el = extra_libdir.split()
+    env.Append(LIBPATH=el)
 
 env.ParseConfig('pkg-config --cflags --libs glib-2.0')
 
