@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <sys/sysinfo.h>
 #include <execinfo.h>
+#include <signal.h>
 #define __FAVOR_BSD
 #include <sys/socket.h>
 #include <netinet/in.h>
