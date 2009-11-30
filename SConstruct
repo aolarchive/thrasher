@@ -11,6 +11,11 @@ env = Environment()
 
 extra_cflags = ARGUMENTS.get('CFLAGS')
 extra_libdir = ARGUMENTS.get('LIBDIR')
+static       = ARGUMENTS.get('static')
+
+#if static:
+#    env.Append(LIBS='rt')
+#    env.Append(LINKFLAGS='-static')
 
 if extra_cflags:
     env.Append(CFLAGS=extra_cflags)
@@ -27,6 +32,11 @@ else:
     env.Append(CFLAGS='-O3')
 
 env.Append(LIBS=['event'])
+
+if static:
+    env.Append(LIBS='rt')
+    env.Append(LINKFLAGS='-static')
+
 env.Object('libthrasher', ['libthrasher.c'])
 env.Program('thrashd', ['iov.c', 'thrashd.c'])
 env.Program('master_thrasher', ['libthrasher.c', 'iov.c', 'master_thrasher.c'])
