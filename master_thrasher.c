@@ -68,6 +68,8 @@ parse_args(int argc, char **argv)
 void
 resp_callback(thrash_client_t * cli, thrash_resp_t * resp)
 {
+
+    event_base_loopbreak(cli->evbase);
     printf("Done!\n");
 }
 
@@ -89,6 +91,7 @@ main(int argc, char **argv)
         exit(1);
     }
 
+#if 0
     base = event_init();
 
     for (i = 0; i < argc; i++) {
@@ -106,5 +109,24 @@ main(int argc, char **argv)
     }
 
     event_base_loop(base, 0);
+#endif
+    base = event_init();
+
+    thrash_client_t *lc;
+    lc = init_thrash_client();
+    lc->evbase = base;
+    lc->resp_cb = resp_callback;
+    lc->port = thrashd_port;
+    thrash_client_sethost(lc, thrashd_host);
+    thrash_client_settype(lc, pkt_type);
+    thrash_client_connect(lc);
+
+    for (i = 0; i < argc; i++)
+    {
+	printf("%s\n", argv[i]);
+	thrash_client_lookup(lc, inet_addr(argv[i]), NULL);
+	event_base_loop(base, 0);
+    }
+
     return 0;
 }

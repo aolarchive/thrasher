@@ -1089,10 +1089,11 @@ client_read_injection(int sock, short which, client_conn_t * conn)
     }
 
 
-    free_client_conn(conn);
-    LOG("howdY");
-    close(sock);
-    return;
+    reset_iov(&conn->data);
+
+    event_set(&conn->event, conn->sock, EV_READ,
+	    (void *)client_read_type, conn);
+    event_add(&conn->event, 0);
 }
 
 void
