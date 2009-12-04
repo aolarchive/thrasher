@@ -131,6 +131,9 @@ globals_init(void)
     recently_blocked_timeout = 120;
 }
 
+//#define set_nb(sock) do { fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, 0) | O_NONBLOCK); \
+    } while(0);
+
 int
 set_nb(int sock)
 {
