@@ -4,104 +4,136 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <arpa/inet.h>
+#include "thrasher.h"
 #include "bgpd.h"
 
-#define SOCKET_NAME     "/var/run/bgpd.sock"
-
 typedef struct _bgp_community {
-    uint8_t asn;
-    uint8_t community;
+    uint16_t        asn;
+    uint16_t        community;
 } bgp_community_t;
 
-typedef struct _thrash_bgp {
-    uint32_t addr;
-    bgp_community_t community;
-    char *sockname;
-    int   sock;
-    iov_t *iov;
-    struct event event;
-} thrash_bgp_t;
+typedef struct _bgp_pkt {
+    void           *buf;
+    int             len;
+} bgp_pkt_t;
 
-int 
-thrash_bgp_connect(thrash_bgp_t *bgp)
+static int
+thrash_bgp_connect(const char *sockname)
 {
-    int sock;
-
-
-
-int main(int argc, char **argv)
-{
-    int fd;
+    int             sock;
     struct sockaddr_un sun;
-    struct network_config net;
-    struct bgpd_addr addr;
-    struct in_addr ina;
-    struct imsgbuf *ibuf;
 
-    char *toinject = argv[1];
+    if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+        return -1;
 
-    if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
-	exit(1);
-
-    bzero(&sun, sizeof(sun));
+    memset(&sun, 0, sizeof(struct sockaddr_un));
 
     sun.sun_family = AF_UNIX;
-    strcpy(sun.sun_path, SOCKET_NAME); 
+    strncpy(sun.sun_path, sockname, sizeof(sun.sun_path));
 
-    connect(fd, (struct sockaddr *)&sun, sizeof(sun));
-
-    inet_net_pton(AF_INET, toinject, &ina, sizeof(ina));
-
-    bzero(&addr, sizeof(addr));
-    addr.af = AF_INET;
-    addr.v4 = ina;
-
-
-    bzero(&net, sizeof(net));
-    memcpy(&net.prefix, &addr, sizeof(struct bgpd_addr));
-
-    net.prefixlen = 32;
-    
-    struct filter_set set;
-    memset(&set, 0, sizeof(set));
-    set.action.community.as = 666;
-    set.action.community.type = 30;
-    set.type = ACTION_SET_COMMUNITY;
-
-    ibuf = malloc(sizeof(struct imsgbuf));
-    imsg_init(ibuf, fd);
-
-    imsg_compose(ibuf, IMSG_NETWORK_ADD,  0, 0, -1, &net, sizeof(net));
-    imsg_compose(ibuf, IMSG_FILTER_SET, 0, 0, -1, &set, sizeof(struct filter_set));
-    imsg_compose(ibuf, IMSG_NETWORK_DONE, 0, 0, -1, NULL, 0);
-
-    /*
-    msgbuf_write(&ibuf->w);
-    */
-
-    char *sendbuf = malloc(1024);
-    struct buf *buf;
-    int offset = 0;
-    memset(sendbuf, 0, 1024);
-
-    TAILQ_FOREACH(buf, &ibuf->w.bufs, entry) {
-	int len = buf->wpos - buf->rpos;
-	char *base = buf->buf + buf->rpos;
-	printf("%d %d\n", offset, len);
-	memcpy(&sendbuf[offset], base, len);
-	offset += len;
+    if (connect(sock, (struct sockaddr *) &sun, sizeof(sun)) < 0) {
+        close(sock);
+        return -1;
     }
 
-    printf("Total len: %d\n", offset);
-    write(fd, sendbuf, offset);
-    imsg_clear(ibuf);
-    free(ibuf);
-    free(sendbuf);
+    return sock;
+}
+
+
+static struct imsgbuf *
+thrash_bgp_mkpkt(int sock, const uint32_t iaddr,
+                 const bgp_community_t * community, const int type)
+{
+    struct network_config net;
+    struct bgpd_addr addr;
+    struct imsgbuf *ibuf;
+    struct filter_set set;
+    bgp_pkt_t      *pkt;
+
+    if (!(ibuf = malloc(sizeof(struct imsgbuf))))
+        return NULL;
+
+    memset(&addr, 0, sizeof(struct bgpd_addr));
+    memset(&net, 0, sizeof(struct network_config));
+    memset(&set, 0, sizeof(struct filter_set));
+
+    addr.af = AF_INET;
+    addr.v4.s_addr = iaddr;
+
+    memcpy(&net.prefix, &addr, sizeof(struct bgpd_addr));
+    net.prefixlen = 32;
+
+    if (community) {
+        set.action.community.as = community->asn;
+        set.action.community.type = community->community;
+        set.type = ACTION_SET_COMMUNITY;
+    }
+
+    imsg_init(ibuf, sock);
+
+    imsg_compose(ibuf, type, 0, 0, -1, &net, sizeof(net));
+
+    if (community)
+        imsg_compose(ibuf, IMSG_FILTER_SET,
+                     0, 0, -1, &set, sizeof(struct filter_set));
+
+    imsg_compose(ibuf, IMSG_NETWORK_DONE, 0, 0, -1, NULL, 0);
+
+    return ibuf;
+}
+
+void
+thrash_bgp_freepkt(struct imsgbuf *buf)
+{
+    imsg_clear(buf);
+    free(buf);
+}
+
+int
+thrash_bgp_inject(const uint32_t addr,
+                  const bgp_community_t * community, const char *sockname)
+{
+    int             sock;
+    struct imsgbuf *buf;
+
+    sock = thrash_bgp_connect(sockname);
+    buf = thrash_bgp_mkpkt(sock, addr, community, IMSG_NETWORK_ADD);
+
+    if (msgbuf_write(&buf->w) < 0)
+        return -1;
+
+    thrash_bgp_freepkt(buf);
     return 0;
 }
-	
 
+int
+main(int argc, char **argv)
+{
+    uint16_t        asn;
+    uint32_t        addr;
+    bgp_community_t *community = NULL;
 
+    if (argc < 2) {
+        printf("Usage: %s <addr> [<asn> <community>]\n", argv[0]);
+        exit(1);
+    }
 
+    addr = (uint32_t) inet_addr(argv[1]);
 
+    if (argv[2] && argv[3]) {
+        community = malloc(sizeof(bgp_community_t));
 
+        community->asn = atoi(argv[2]);
+        community->community = atoi(argv[3]);
+    }
+
+    printf("%s\n", 
+	    thrash_bgp_inject(addr, community,
+              "/var/run/bgpd.sock") ? 
+	    "unsuccessful":"successful");
+
+    if (community)
+        free(community);
+
+    return 0;
+}

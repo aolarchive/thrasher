@@ -48,6 +48,14 @@ env.Object('libthrasher', ['libthrasher.c'])
 env.Program('thrashd', ['iov.c', 'thrashd.c'])
 env.Program('master_thrasher', ['libthrasher.c', 'iov.c', 'master_thrasher.c'])
 
+if ARGUMENTS.get('bgp'):
+    env.Append(CFLAGS='-I/home/mthomas/openbgpd-linux-4.6/bgpd')
+    env.Append(CFLAGS='-I/home/mthomas/openbgpd-linux-4.6/openbsd-compat')
+    env.Append(CFLAGS='-I/home/mthomas/openbgpd-linux-4.6/')
+    env.Program('bgp', ['bgp.c',
+        '/home/mthomas/openbgpd-linux-4.6/bgpctl/buffer.o',
+        '/home/mthomas/openbgpd-linux-4.6/bgpctl/imsg.o'])
+
 if libthrash_test:
     env.Append(CFLAGS="-DLIBTHRASHER_MAIN");
     env.Program('libthrasher-test', ['iov.c', 'libthrasher.c'])
