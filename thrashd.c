@@ -1,3 +1,6 @@
+#include <pwd.h>
+#include <grp.h>
+
 #include "thrasher.h"
 #include "version.h"
 
@@ -45,6 +48,14 @@ GRand          *randdata;
 static uint32_t recently_blocked_timeout;
 static block_ratio_t minimum_random_ratio;
 static block_ratio_t maximum_random_ratio;
+
+char *drop_user;
+char *drop_group;
+
+#ifdef WITH_BGP
+char *bgp_sockname;
+int bgp_sock;
+#endif
 
 void
 reset_query(query_t * query)
@@ -129,6 +140,8 @@ globals_init(void)
     randdata = NULL;
     recently_blocked = NULL;
     recently_blocked_timeout = 120;
+    drop_user = NULL;
+    drop_group = NULL;
 }
 
 //#define set_nb(sock) do { fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, 0) | O_NONBLOCK); \
@@ -476,6 +489,13 @@ block_addr(client_conn_t * conn, uint32_t addr)
 
     evtimer_set(&bnode->timeout, (void *) expire_bnode, bnode);
     evtimer_add(&bnode->timeout, &tv);
+#ifdef WITH_BGP
+    /* XXX TEST XXX */
+    bgp_community_t cm;
+    cm.asn = 667;
+    cm.community = 30;
+    thrash_bgp_inject(addr, &cm, bgp_sock);
+#endif
 
     return bnode;
 }
@@ -1271,39 +1291,40 @@ load_config(const char *file)
         _c_f_t          type;
         void           *var;
     } c_f_in[] = {
-        {
-        "thrashd", "name", _c_f_t_str, &process_name}, {
-        "thrashd", "uri-check", _c_f_t_int, &uri_check}, {
-        "thrashd", "host-check", _c_f_t_int, &site_check}, {
-        "thrashd", "addr-check", _c_f_t_int, &addr_check}, {
-        "thrashd", "http-listen-port", _c_f_t_int, &server_port}, {
-        "thrashd", "listen-port", _c_f_t_int, &bind_port}, {
-        "thrashd", "listen-addr", _c_f_t_str, &bind_addr}, {
-        "thrashd", "block-timeout", _c_f_t_int, &soft_block_timeout}, {
-        "thrashd", "uri-ratio", _c_f_t_ratio, &uri_ratio}, {
-        "thrashd", "host-ratio", _c_f_t_ratio, &site_ratio}, {
-        "thrashd", "addr-ratio", _c_f_t_ratio, &addr_ratio}, {
-        "thrashd", "daemonize", _c_f_t_int, &rundaemon}, {
-        "thrashd", "syslog", _c_f_t_int, &syslog_enabled}, {
-        "thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, {
-        "thrashd",
-                "rbl-negative-cache-timeout", _c_f_t_int,
-                &rbl_negcache_timeout}, {
-        "thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
-        "thrashd", "rbl-max-query", _c_f_t_int, &rbl_max_queries}, {
-        "thrashd", "rand-ratio", _c_f_t_trie, &recently_blocked}, {
-        "thrashd", "min-rand-ratio", _c_f_t_ratio, &minimum_random_ratio},
-        {
-        "thrashd", "max-rand-ratio", _c_f_t_ratio, &maximum_random_ratio},
-        {
-        "thrashd", "recently-blocked-timeout", _c_f_t_int,
-                &recently_blocked_timeout}, {
-        "thrashd", "rbl-negative-cache-timeout", _c_f_t_int,
-                &rbl_negcache_timeout}, {
-        "thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, {
-        "thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
-        "thrashd", "rbl-max-queries", _c_f_t_int, &rbl_max_queries}, {
-        NULL, NULL, 0, NULL}
+        {"thrashd", "name", _c_f_t_str, &process_name}, 
+	{"thrashd", "uri-check", _c_f_t_int, &uri_check}, 
+	{"thrashd", "host-check", _c_f_t_int, &site_check}, 
+	{"thrashd", "addr-check", _c_f_t_int, &addr_check}, 
+	{"thrashd", "http-listen-port", _c_f_t_int, &server_port}, 
+	{"thrashd", "listen-port", _c_f_t_int, &bind_port}, 
+	{"thrashd", "listen-addr", _c_f_t_str, &bind_addr}, 
+	{"thrashd", "block-timeout", _c_f_t_int, &soft_block_timeout}, 
+	{"thrashd", "uri-ratio", _c_f_t_ratio, &uri_ratio}, 
+	{"thrashd", "host-ratio", _c_f_t_ratio, &site_ratio}, 
+	{"thrashd", "addr-ratio", _c_f_t_ratio, &addr_ratio}, 
+	{"thrashd", "daemonize", _c_f_t_int, &rundaemon}, 
+	{"thrashd", "syslog", _c_f_t_int, &syslog_enabled}, 
+	{"thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, 
+	{"thrashd","rbl-negative-cache-timeout", _c_f_t_int,
+                &rbl_negcache_timeout}, 
+	{"thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, 
+	{"thrashd", "rbl-max-query", _c_f_t_int, &rbl_max_queries}, 
+	{"thrashd", "rand-ratio", _c_f_t_trie, &recently_blocked}, 
+	{"thrashd", "min-rand-ratio", _c_f_t_ratio, &minimum_random_ratio},
+        {"thrashd", "max-rand-ratio", _c_f_t_ratio, &maximum_random_ratio},
+        {"thrashd", "recently-blocked-timeout", _c_f_t_int,
+                &recently_blocked_timeout}, 
+	{"thrashd", "rbl-negative-cache-timeout", _c_f_t_int,
+                &rbl_negcache_timeout}, 
+	{"thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, 
+	{"thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, 
+	{"thrashd", "rbl-max-queries", _c_f_t_int, &rbl_max_queries}, 
+	{"thrashd", "user", _c_f_t_str, &drop_user}, 
+	{"thrashd", "group", _c_f_t_str, &drop_group}, 
+#ifdef WITH_BGP
+	{"thrashd", "bgp-sock", _c_f_t_str, &bgp_sockname},
+#endif
+	{NULL, NULL, 0, NULL}
     };
 
     config_file = g_key_file_new();
@@ -1751,6 +1772,86 @@ segvfunc(int sig)
 }
 #endif
 
+#ifdef WITH_BGP
+void
+bgp_init(void)
+{
+  if (!bgp_sockname)
+    return;
+
+  if ((bgp_sock = thrash_bgp_connect(bgp_sockname)) < 0)
+    {
+      LOG("ERROR: bgpd sock: %s", strerror(errno));
+      exit(1);
+    }
+  LOG("sock %d", bgp_sock);
+
+}
+#endif
+
+void
+thrashd_init(void)
+{
+  rbl_init();
+  qps_init();
+  randdata = g_rand_new();
+
+  if (webserver_init() == -1) {
+        LOG("ERROR: Could not bind webserver port: %s", strerror(errno));
+	exit(1);
+    }
+
+    if (server_init() == -1) {
+        LOG("ERROR: Could not bind to port: %s", strerror(errno));
+	exit(1);
+    }
+
+    syslog_init("local6");
+
+#ifdef ARCH_LINUX
+  signal(SIGSEGV, segvfunc);
+#endif
+
+}
+
+int
+drop_perms(void)
+{
+  struct passwd *usr;
+  struct group  *grp;
+  if (drop_group)
+    {    
+      grp = getgrnam(drop_group);
+
+      if (!grp)
+        {    
+          LOG("ERROR: group %s not found.", drop_group);
+          exit(1);
+        }    
+
+      if (setgid(grp->gr_gid) != 0)
+        {    
+          LOG("ERROR: setgid failed %s", strerror(errno)); 
+          exit(1);
+        }    
+
+    }
+
+  if (drop_user)
+    {
+      usr = getpwnam(drop_user); 
+      if (!usr)
+	{
+	  LOG("ERROR: User %s not found.", drop_user);
+	  exit(1);
+	}
+      if (seteuid(usr->pw_uid) != 0)
+	{
+	  LOG("ERROR: setuid failed %s", strerror(errno));
+	  exit(1);
+	}
+    }
+}
 
 int
 main(int argc, char **argv)
@@ -1758,27 +1859,12 @@ main(int argc, char **argv)
     globals_init();
     parse_args(argc, argv);
     event_init();
-    rbl_init();
-    qps_init();
-
-#ifdef ARCH_LINUX
-    signal(SIGSEGV, segvfunc);
+    thrashd_init();
+#ifdef WITH_BGP
+    bgp_init();
 #endif
-
-    randdata = g_rand_new();
-
-    if (webserver_init() == -1) {
-        LOG("ERROR: Could not bind webserver port: %s", strerror(errno));
-        return 0;
-    }
-
-    if (server_init() == -1) {
-        LOG("ERROR: Could not bind to port: %s", strerror(errno));
-        return 0;
-    }
-
-    syslog_init("local6");
     log_startup();
+    drop_perms();
 
     if (rundaemon)
         daemonize("/tmp");

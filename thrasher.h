@@ -21,6 +21,10 @@
 #include <event.h>
 #include <evhttp.h>
 #include <evdns.h>
+#include <sys/types.h>
+#ifdef WITH_BGP
+#include "bgp.h"
+#endif
 
 #include "iov.h"
 
@@ -62,10 +66,8 @@ typedef struct thrash_client {
     iov_t              data;
     uint32_t           addr_lookup;
 		void              *userdata;
-#ifndef DISABLE_EVENT
     struct event_base *evbase;
     struct event       event;
-#endif
     void (*resp_cb) (struct thrash_client *cli, thrash_resp_t *resp);
 } thrash_client_t;
 

@@ -44,17 +44,26 @@ if static:
     env.Append(LIBS='rt')
     env.Append(LINKFLAGS='-static')
 
-env.Object('libthrasher', ['libthrasher.c'])
-env.Program('thrashd', ['iov.c', 'thrashd.c'])
-env.Program('master_thrasher', ['libthrasher.c', 'iov.c', 'master_thrasher.c'])
+
+thrashd_objs = ['iov.c', 'thrashd.c']
+master_thrasher_objs = ['libthrasher.c', 'iov.c', 'master_thrasher.c']
 
 if ARGUMENTS.get('bgp'):
-    env.Append(CFLAGS='-I/home/mthomas/openbgpd-linux-4.6/bgpd')
-    env.Append(CFLAGS='-I/home/mthomas/openbgpd-linux-4.6/openbsd-compat')
-    env.Append(CFLAGS='-I/home/mthomas/openbgpd-linux-4.6/')
-    env.Program('bgp', ['bgp.c',
-        '/home/mthomas/openbgpd-linux-4.6/bgpctl/buffer.o',
-        '/home/mthomas/openbgpd-linux-4.6/bgpctl/imsg.o'])
+    env.Append(CFLAGS='-I/home/mthomas/openbgp/bgpd')
+    env.Append(CFLAGS='-I/home/mthomas/openbgp')
+    env.Append(CFLAGS='-DWITH_BGP')
+    env.Object('bgp')
+    thrashd_objs.append('/home/mthomas/openbgp/bgpctl/buffer.o')
+    thrashd_objs.append('/home/mthomas/openbgp/bgpctl/imsg.o')
+    thrashd_objs.append('bgp.c')
+    master_thrasher_objs.append('/home/mthomas/openbgp/bgpctl/buffer.o')
+    master_thrasher_objs.append('/home/mthomas/openbgp/bgpctl/imsg.o')
+
+
+env.Object('libthrasher', ['libthrasher.c'])
+env.Program('thrashd', thrashd_objs)#['iov.c', 'thrashd.c'])
+env.Program('master_thrasher', master_thrasher_objs)#['libthrasher.c', 'iov.c', 'master_thrasher.c'])
+
 
 if libthrash_test:
     env.Append(CFLAGS="-DLIBTHRASHER_MAIN");

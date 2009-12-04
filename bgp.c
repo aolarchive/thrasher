@@ -5,19 +5,8 @@
 #include <sys/un.h>
 #include <arpa/inet.h>
 #include "thrasher.h"
-#include "bgpd.h"
 
-typedef struct _bgp_community {
-    uint16_t        asn;
-    uint16_t        community;
-} bgp_community_t;
-
-typedef struct _bgp_pkt {
-    void           *buf;
-    int             len;
-} bgp_pkt_t;
-
-static int
+int
 thrash_bgp_connect(const char *sockname)
 {
     int             sock;
@@ -48,7 +37,6 @@ thrash_bgp_mkpkt(int sock, const uint32_t iaddr,
     struct bgpd_addr addr;
     struct imsgbuf *ibuf;
     struct filter_set set;
-    bgp_pkt_t      *pkt;
 
     if (!(ibuf = malloc(sizeof(struct imsgbuf))))
         return NULL;
@@ -91,12 +79,10 @@ thrash_bgp_freepkt(struct imsgbuf *buf)
 
 int
 thrash_bgp_inject(const uint32_t addr,
-                  const bgp_community_t * community, const char *sockname)
+                  const bgp_community_t * community, int sock)
 {
-    int             sock;
     struct imsgbuf *buf;
 
-    sock = thrash_bgp_connect(sockname);
     buf = thrash_bgp_mkpkt(sock, addr, community, IMSG_NETWORK_ADD);
 
     if (msgbuf_write(&buf->w) < 0)
@@ -106,9 +92,11 @@ thrash_bgp_inject(const uint32_t addr,
     return 0;
 }
 
+#ifdef TEST_BGP
 int
 main(int argc, char **argv)
 {
+    int             sock;
     uint16_t        asn;
     uint32_t        addr;
     bgp_community_t *community = NULL;
@@ -127,9 +115,10 @@ main(int argc, char **argv)
         community->community = atoi(argv[3]);
     }
 
+    sock = thrash_bgp_connect("/var/run/bgpd.sock");
+
     printf("%s\n", 
-	    thrash_bgp_inject(addr, community,
-              "/var/run/bgpd.sock") ? 
+	    thrash_bgp_inject(addr, community, sock) ? 
 	    "unsuccessful":"successful");
 
     if (community)
@@ -137,3 +126,4 @@ main(int argc, char **argv)
 
     return 0;
 }
+#endif
