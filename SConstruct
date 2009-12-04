@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import os, sys
+import platform
 
 debug = ARGUMENTS.get('debug', 0)
 libthrash_test = ARGUMENTS.get('lthrash-test', 0)
@@ -12,6 +13,16 @@ env = Environment()
 extra_cflags = ARGUMENTS.get('CFLAGS')
 extra_libdir = ARGUMENTS.get('LIBDIR')
 static       = ARGUMENTS.get('static')
+
+arch = platform.system() 
+
+if arch == 'OpenBSD':
+    env.Append(CFLAGS='-DPLATFORM_OPENBSD')
+elif arch == 'Linux':
+    env.Append(CFLAGS='-DPLATFORM_LINUX')
+else:
+    print "Unsupported architecture %s" % arch
+    sys.exit(1)
 
 if extra_cflags:
     env.Append(CFLAGS=extra_cflags)

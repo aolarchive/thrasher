@@ -1726,6 +1726,7 @@ log_startup(void)
 
 }
 
+#ifdef ARCH_LINUX
 void
 segvfunc(int sig)
 {
@@ -1745,6 +1746,7 @@ segvfunc(int sig)
     signal(sig, SIG_DFL);
     kill(getpid(), sig);
 }
+#endif
 
 
 int
@@ -1756,7 +1758,9 @@ main(int argc, char **argv)
     rbl_init();
     qps_init();
 
+#ifdef ARCH_LINUX
     signal(SIGSEGV, segvfunc);
+#endif
 
     randdata = g_rand_new();
 

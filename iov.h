@@ -1,5 +1,10 @@
 #ifndef _IOV_H 
 #define _IOV_H
+
+#ifdef PLATFORM_OPENBSD
+#define MSG_NOSIGNAL 0
+#endif
+
 typedef struct iov {
     char *buf;
     size_t to_read;
