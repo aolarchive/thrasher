@@ -49,12 +49,12 @@ static uint32_t recently_blocked_timeout;
 static block_ratio_t minimum_random_ratio;
 static block_ratio_t maximum_random_ratio;
 
-char *drop_user;
-char *drop_group;
+char           *drop_user;
+char           *drop_group;
 
 #ifdef WITH_BGP
-char *bgp_sockname;
-int bgp_sock;
+char           *bgp_sockname;
+int             bgp_sock;
 #endif
 
 void
@@ -143,9 +143,6 @@ globals_init(void)
     drop_user = NULL;
     drop_group = NULL;
 }
-
-//#define set_nb(sock) do { fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, 0) | O_NONBLOCK); \
-    } while(0);
 
 int
 set_nb(int sock)
@@ -244,7 +241,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
 
     if (result != DNS_ERR_NONE || count <= 0 ||
         type != DNS_IPv4_A || ttl < 0) {
-        /*
+        /* 
          * we must cache the negative answer so we don't kill our rbl
          * server 
          */
@@ -268,7 +265,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
         return;
     }
 
-    /*
+    /* 
      * insert the entry into our holddown list 
      */
 #ifdef DEBUG
@@ -352,23 +349,22 @@ remove_holddown(uint32_t addr)
 void
 expire_bnode(int sock, short which, blocked_node_t * bnode)
 {
-    /*
+    /* 
      * blocked node expiration 
      */
     LOG("expired address %s after %u hits",
-        inet_ntoa(*(struct in_addr *) &bnode->saddr),
-	bnode->count);
+        inet_ntoa(*(struct in_addr *) &bnode->saddr), bnode->count);
 
     evtimer_del(&bnode->timeout);
     remove_holddown(bnode->saddr);
 
-    /*
+    /* 
      * which will tell us whether this is a timer or not,
      * since manual removes will set which to 0, we skip
      * recently_blocked insert 
      */
     if (recently_blocked && which) {
-        /*
+        /* 
          * if we have our moving ratios enabled we 
          * put the blocked node into recently_blocked
          */
@@ -376,22 +372,22 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
 
         evtimer_del(&bnode->recent_block_timeout);
 
-        /*
+        /* 
          * slide our windows around 
          */
         slide_ratios(bnode);
 
-        /*
+        /* 
          * reset our count 
          */
         bnode->count = 0;
 
-        /*
+        /* 
          * load this guy up into our recently blocked list 
          */
         g_tree_insert(recently_blocked, &bnode->saddr, bnode);
 
-        /*
+        /* 
          * set our timeout to the global 
          */
         tv.tv_sec = recently_blocked_timeout;
@@ -434,12 +430,12 @@ expire_stats_node(int sock, short which, qstats_t * stat_node)
         stat_node->key, stat_node->table);
 #endif
 
-    /*
+    /* 
      * remove the timers 
      */
     evtimer_del(&stat_node->timeout);
 
-    /*
+    /* 
      * remove this entry from the designated hash table 
      */
     g_hash_table_remove(stat_node->table, stat_node->key);
@@ -454,7 +450,7 @@ block_addr(client_conn_t * conn, uint32_t addr)
     blocked_node_t *bnode;
     struct timeval  tv;
 
-    /*
+    /* 
      * create a new blocked node structure 
      */
     if (!(bnode = malloc(sizeof(blocked_node_t)))) {
@@ -470,18 +466,18 @@ block_addr(client_conn_t * conn, uint32_t addr)
     if (conn)
         bnode->first_seen_addr = conn->conn_addr;
     else
-        /*
+        /* 
          * sometimes we don't get a conn struct, this can be due to other 
          * types of blocking - RBL for example 
          */
         bnode->first_seen_addr = 0;
 
-    /*
+    /* 
      * insert the blocked node into our tree of held down addresses 
      */
     g_tree_insert(current_blocks, &bnode->saddr, bnode);
 
-    /*
+    /* 
      * add our soft timeout for this node 
      */
     tv.tv_sec = soft_block_timeout;
@@ -529,7 +525,7 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
 
     if (!stats) {
 
-        /*
+        /* 
          * create a new statistics table for this type 
          */
 
@@ -543,12 +539,12 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         stats->key = strdup(key);
         stats->table = table;
 
-        /*
+        /* 
          * insert the new statistics table into its hash 
          */
         g_hash_table_insert(table, stats->key, stats);
 
-        /*
+        /* 
          * now set an expire timer for this qstat_t node 
          */
         tv.tv_sec = ratio->timelimit;
@@ -563,13 +559,13 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         stats->key, stats->table, stats->saddr);
 #endif
 
-    /*
+    /* 
      * increment our connection counter 
      */
     stats->connections++;
 
     if (stats->connections >= ratio->num_connections) {
-        /*
+        /* 
          * we seemed to have hit a threshold 
          */
         blocked_node_t *bnode;
@@ -614,11 +610,11 @@ do_thresholding(client_conn_t * conn)
     ukey = NULL;
     hkey = NULL;
 
-    /*
+    /* 
      * first check if we already have a block somewhere 
      */
     if ((bnode = g_tree_lookup(current_blocks, &conn->query.saddr))) {
-        /*
+        /* 
          * this connection seems to be blocked, reset our block timers
          * and continue on 
          */
@@ -629,7 +625,7 @@ do_thresholding(client_conn_t * conn)
         evtimer_set(&bnode->timeout, (void *) expire_bnode, bnode);
         evtimer_add(&bnode->timeout, &tv);
 
-        /*
+        /* 
          * increment our stats counter 
          */
         bnode->count++;
@@ -640,19 +636,19 @@ do_thresholding(client_conn_t * conn)
     if (recently_blocked && (bnode =
                              g_tree_lookup(recently_blocked,
                                            &conn->query.saddr))) {
-        /*
+        /* 
          * this address has been recently expired from the current_blocks
          * and placed into the recently_blocked list. 
          */
         if (bnode->count++ == 0) {
-            /*
+            /* 
              * This is the first packet we have seen from this address 
              * since it was put into the recently_blocked tree. 
              */
             evtimer_del(&bnode->recent_block_timeout);
 
 
-            /*
+            /* 
              * since we only end up in the recently_blocked list after 
              * a node has been blocked, then expired via expire_bnode(), 
              * expire_bnode() shifts around the ratios (bnode->ratio)
@@ -661,7 +657,7 @@ do_thresholding(client_conn_t * conn)
             tv.tv_sec = bnode->ratio.timelimit;
             tv.tv_usec = 0;
 
-            /*
+            /* 
              * if this timer is every reached, it means that we never
              * hit our ratio, thus we need to expire it from the
              * recently_blocked list 
@@ -673,22 +669,22 @@ do_thresholding(client_conn_t * conn)
         }
 
         if (bnode->count >= bnode->ratio.num_connections) {
-            /*
+            /* 
              * this connection deserves to be blocked 
              */
 
-            /*
+            /* 
              * remove from our recently blocked list 
              */
             evtimer_del(&bnode->recent_block_timeout);
             g_tree_remove(recently_blocked, &conn->query.saddr);
 
-            /*
+            /* 
              * insert into our block tree 
              */
             g_tree_insert(current_blocks, &bnode->saddr, bnode);
 
-            /*
+            /* 
              * set our timeout to the normal timelimit 
              */
             tv.tv_sec = soft_block_timeout;
@@ -703,11 +699,11 @@ do_thresholding(client_conn_t * conn)
         return 0;
     }
 
-    /*
+    /* 
      * we are currently not blocked 
      */
 
-    /*
+    /* 
      * next we query our RBL server if applicable. NOTE: this will not
      * block immediately, this is a post check. This is so that we don't
      * block on the operation 
@@ -746,7 +742,7 @@ do_thresholding(client_conn_t * conn)
 
         break;
     case TYPE_THRESHOLD_v2:
-        /*
+        /* 
          * with v2 we only care about the source-address 
          */
 
@@ -786,7 +782,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
     int             blocked;
 
     if (!conn->data.buf)
-        /*
+        /* 
          * if the connection has an ID, then set it to 5 bytes of reading, 
          * else make it only 1 byte 
          */
@@ -809,7 +805,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
     ioret = write_iov(&conn->data, sock);
 
     if (ioret < 0) {
-	LOG("Hey there");
+        LOG("Hey there");
         free_client_conn(conn);
         close(sock);
         return;
@@ -825,7 +821,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
     reset_iov(&conn->data);
     reset_query(&conn->query);
 
-    /*
+    /* 
      * we've done all our work on this, go back to the beginning 
      */
     event_set(&conn->event, sock, EV_READ,
@@ -895,7 +891,7 @@ client_read_payload(int sock, short which, client_conn_t * conn)
 void
 client_read_v3_header(int sock, short which, client_conn_t * conn)
 {
-    /*
+    /* 
      * version 3 header includes an extra 32 bit field at the start of
      * the packet. This allows a client to set an ID which will be echoed
      * along with the response. Otherwise it's just like v1 
@@ -928,7 +924,7 @@ client_read_v3_header(int sock, short which, client_conn_t * conn)
     LOG("Got ident %u", ntohs(conn->id));
 #endif
 
-    /*
+    /* 
      * go back to reading a v1 like packet 
      */
     event_set(&conn->event, sock, EV_READ,
@@ -964,7 +960,7 @@ client_read_v2_header(int sock, short which, client_conn_t * conn)
     conn->query.saddr = saddr;
     reset_iov(&conn->data);
 
-    /*
+    /* 
      * v2 allows us to just recv a source address, thus we can go directly 
      * into processing the data 
      */
@@ -1057,7 +1053,7 @@ client_read_injection(int sock, short which, client_conn_t * conn)
 
     switch (conn->type) {
     case TYPE_INJECT:
-        /*
+        /* 
          * make sure the node doesn't already exist 
          */
         if ((bnode = g_tree_lookup(current_blocks, &saddr))) {
@@ -1066,20 +1062,20 @@ client_read_injection(int sock, short which, client_conn_t * conn)
             break;
         }
 
-        /*
+        /* 
          * this is starting to get a little hacky I think. We can re-factor
          * if I ever end up doing any other types of features 
          */
         if (recently_blocked &&
             (bnode = g_tree_lookup(recently_blocked, &saddr)))
-            /*
+            /* 
              * remove the bnode from the recently blocked list 
              * so the bnode is now set to this instead of a new
              * allocd version 
              */
         {
             g_tree_remove(recently_blocked, &saddr);
-            /*
+            /* 
              * unset the recently_blocked timeout 
              */
             evtimer_del(&bnode->recent_block_timeout);
@@ -1115,7 +1111,7 @@ client_read_injection(int sock, short which, client_conn_t * conn)
     reset_iov(&conn->data);
 
     event_set(&conn->event, conn->sock, EV_READ,
-	    (void *)client_read_type, conn);
+              (void *) client_read_type, conn);
     event_add(&conn->event, 0);
 }
 
@@ -1137,7 +1133,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
     }
 
     if (ioret > 0) {
-        /*
+        /* 
          * what? can't get 1 byte? lame 
          */
         free_client_conn(conn);
@@ -1153,7 +1149,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
 #endif
     switch (type) {
     case TYPE_THRESHOLD_v1:
-        /*
+        /* 
          * thresholding analysis with uri/host  
          */
         event_set(&conn->event, sock, EV_READ,
@@ -1161,7 +1157,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
         event_add(&conn->event, 0);
         break;
     case TYPE_THRESHOLD_v2:
-        /*
+        /* 
          * thresholding for IP analysis only 
          */
         event_set(&conn->event, sock, EV_READ,
@@ -1169,7 +1165,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
         event_add(&conn->event, 0);
         break;
     case TYPE_THRESHOLD_v3:
-        /*
+        /* 
          * just like v1 but with a 32bit identification header 
          */
         event_set(&conn->event, sock, EV_READ,
@@ -1291,40 +1287,45 @@ load_config(const char *file)
         _c_f_t          type;
         void           *var;
     } c_f_in[] = {
-        {"thrashd", "name", _c_f_t_str, &process_name}, 
-	{"thrashd", "uri-check", _c_f_t_int, &uri_check}, 
-	{"thrashd", "host-check", _c_f_t_int, &site_check}, 
-	{"thrashd", "addr-check", _c_f_t_int, &addr_check}, 
-	{"thrashd", "http-listen-port", _c_f_t_int, &server_port}, 
-	{"thrashd", "listen-port", _c_f_t_int, &bind_port}, 
-	{"thrashd", "listen-addr", _c_f_t_str, &bind_addr}, 
-	{"thrashd", "block-timeout", _c_f_t_int, &soft_block_timeout}, 
-	{"thrashd", "uri-ratio", _c_f_t_ratio, &uri_ratio}, 
-	{"thrashd", "host-ratio", _c_f_t_ratio, &site_ratio}, 
-	{"thrashd", "addr-ratio", _c_f_t_ratio, &addr_ratio}, 
-	{"thrashd", "daemonize", _c_f_t_int, &rundaemon}, 
-	{"thrashd", "syslog", _c_f_t_int, &syslog_enabled}, 
-	{"thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, 
-	{"thrashd","rbl-negative-cache-timeout", _c_f_t_int,
-                &rbl_negcache_timeout}, 
-	{"thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, 
-	{"thrashd", "rbl-max-query", _c_f_t_int, &rbl_max_queries}, 
-	{"thrashd", "rand-ratio", _c_f_t_trie, &recently_blocked}, 
-	{"thrashd", "min-rand-ratio", _c_f_t_ratio, &minimum_random_ratio},
-        {"thrashd", "max-rand-ratio", _c_f_t_ratio, &maximum_random_ratio},
-        {"thrashd", "recently-blocked-timeout", _c_f_t_int,
-                &recently_blocked_timeout}, 
-	{"thrashd", "rbl-negative-cache-timeout", _c_f_t_int,
-                &rbl_negcache_timeout}, 
-	{"thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, 
-	{"thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, 
-	{"thrashd", "rbl-max-queries", _c_f_t_int, &rbl_max_queries}, 
-	{"thrashd", "user", _c_f_t_str, &drop_user}, 
-	{"thrashd", "group", _c_f_t_str, &drop_group}, 
+        {
+        "thrashd", "name", _c_f_t_str, &process_name}, {
+        "thrashd", "uri-check", _c_f_t_int, &uri_check}, {
+        "thrashd", "host-check", _c_f_t_int, &site_check}, {
+        "thrashd", "addr-check", _c_f_t_int, &addr_check}, {
+        "thrashd", "http-listen-port", _c_f_t_int, &server_port}, {
+        "thrashd", "listen-port", _c_f_t_int, &bind_port}, {
+        "thrashd", "listen-addr", _c_f_t_str, &bind_addr}, {
+        "thrashd", "block-timeout", _c_f_t_int, &soft_block_timeout}, {
+        "thrashd", "uri-ratio", _c_f_t_ratio, &uri_ratio}, {
+        "thrashd", "host-ratio", _c_f_t_ratio, &site_ratio}, {
+        "thrashd", "addr-ratio", _c_f_t_ratio, &addr_ratio}, {
+        "thrashd", "daemonize", _c_f_t_int, &rundaemon}, {
+        "thrashd", "syslog", _c_f_t_int, &syslog_enabled}, {
+        "thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, {
+        "thrashd", "rbl-negative-cache-timeout", _c_f_t_int,
+                &rbl_negcache_timeout}, {
+        "thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
+        "thrashd", "rbl-max-query", _c_f_t_int, &rbl_max_queries}, {
+        "thrashd", "rand-ratio", _c_f_t_trie, &recently_blocked}, {
+        "thrashd", "min-rand-ratio", _c_f_t_ratio, &minimum_random_ratio},
+        {
+        "thrashd", "max-rand-ratio", _c_f_t_ratio, &maximum_random_ratio},
+        {
+        "thrashd", "recently-blocked-timeout", _c_f_t_int,
+                &recently_blocked_timeout}, {
+        "thrashd", "rbl-negative-cache-timeout", _c_f_t_int,
+                &rbl_negcache_timeout}, {
+        "thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, {
+        "thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
+        "thrashd", "rbl-max-queries", _c_f_t_int, &rbl_max_queries}, {
+        "thrashd", "user", _c_f_t_str, &drop_user}, {
+        "thrashd", "group", _c_f_t_str, &drop_group},
 #ifdef WITH_BGP
-	{"thrashd", "bgp-sock", _c_f_t_str, &bgp_sockname},
+        {
+        "thrashd", "bgp-sock", _c_f_t_str, &bgp_sockname},
 #endif
-	{NULL, NULL, 0, NULL}
+        {
+        NULL, NULL, 0, NULL}
     };
 
     config_file = g_key_file_new();
@@ -1776,15 +1777,14 @@ segvfunc(int sig)
 void
 bgp_init(void)
 {
-  if (!bgp_sockname)
-    return;
+    if (!bgp_sockname)
+        return;
 
-  if ((bgp_sock = thrash_bgp_connect(bgp_sockname)) < 0)
-    {
-      LOG("ERROR: bgpd sock: %s", strerror(errno));
-      exit(1);
+    if ((bgp_sock = thrash_bgp_connect(bgp_sockname)) < 0) {
+        LOG("ERROR: bgpd sock: %s", strerror(errno));
+        exit(1);
     }
-  LOG("sock %d", bgp_sock);
+    LOG("sock %d", bgp_sock);
 
 }
 #endif
@@ -1792,24 +1792,24 @@ bgp_init(void)
 void
 thrashd_init(void)
 {
-  rbl_init();
-  qps_init();
-  randdata = g_rand_new();
+    rbl_init();
+    qps_init();
+    randdata = g_rand_new();
 
-  if (webserver_init() == -1) {
+    if (webserver_init() == -1) {
         LOG("ERROR: Could not bind webserver port: %s", strerror(errno));
-	exit(1);
+        exit(1);
     }
 
     if (server_init() == -1) {
         LOG("ERROR: Could not bind to port: %s", strerror(errno));
-	exit(1);
+        exit(1);
     }
 
     syslog_init("local6");
 
 #ifdef ARCH_LINUX
-  signal(SIGSEGV, segvfunc);
+    signal(SIGSEGV, segvfunc);
 #endif
 
 }
@@ -1817,39 +1817,33 @@ thrashd_init(void)
 int
 drop_perms(void)
 {
-  struct passwd *usr;
-  struct group  *grp;
-  if (drop_group)
-    {    
-      grp = getgrnam(drop_group);
+    struct passwd  *usr;
+    struct group   *grp;
+    if (drop_group) {
+        grp = getgrnam(drop_group);
 
-      if (!grp)
-        {    
-          LOG("ERROR: group %s not found.", drop_group);
-          exit(1);
-        }    
+        if (!grp) {
+            LOG("ERROR: group %s not found.", drop_group);
+            exit(1);
+        }
 
-      if (setgid(grp->gr_gid) != 0)
-        {    
-          LOG("ERROR: setgid failed %s", strerror(errno)); 
-          exit(1);
-        }    
+        if (setgid(grp->gr_gid) != 0) {
+            LOG("ERROR: setgid failed %s", strerror(errno));
+            exit(1);
+        }
 
     }
 
-  if (drop_user)
-    {
-      usr = getpwnam(drop_user); 
-      if (!usr)
-	{
-	  LOG("ERROR: User %s not found.", drop_user);
-	  exit(1);
-	}
-      if (seteuid(usr->pw_uid) != 0)
-	{
-	  LOG("ERROR: setuid failed %s", strerror(errno));
-	  exit(1);
-	}
+    if (drop_user) {
+        usr = getpwnam(drop_user);
+        if (!usr) {
+            LOG("ERROR: User %s not found.", drop_user);
+            exit(1);
+        }
+        if (seteuid(usr->pw_uid) != 0) {
+            LOG("ERROR: setuid failed %s", strerror(errno));
+            exit(1);
+        }
     }
 }
 
