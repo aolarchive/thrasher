@@ -49,21 +49,18 @@ thrashd_objs = ['iov.c', 'thrashd.c']
 master_thrasher_objs = ['libthrasher.c', 'iov.c', 'master_thrasher.c']
 
 if ARGUMENTS.get('bgp'):
-    SConscript(['openbgp-compat/SConscript'])
-    env.Append(CFLAGS='-I/home/mthomas/openbgp/bgpd')
-    env.Append(CFLAGS='-I/home/mthomas/openbgp')
+    SConscript(['openbgpd-compat/SConscript'])
+    env.Append(CFLAGS='-Iopenbgpd-compat/')
     env.Append(CFLAGS='-DWITH_BGP')
     env.Object('bgp')
-    thrashd_objs.append('/home/mthomas/openbgp/bgpctl/buffer.o')
-    thrashd_objs.append('/home/mthomas/openbgp/bgpctl/imsg.o')
+    thrashd_objs.append('openbgpd-compat/buffer.o')
+    thrashd_objs.append('openbgpd-compat/imsg.o')
     thrashd_objs.append('bgp.c')
-    master_thrasher_objs.append('/home/mthomas/openbgp/bgpctl/buffer.o')
-    master_thrasher_objs.append('/home/mthomas/openbgp/bgpctl/imsg.o')
 
 
 env.Object('libthrasher', ['libthrasher.c'])
-env.Program('thrashd', thrashd_objs)#['iov.c', 'thrashd.c'])
-env.Program('master_thrasher', master_thrasher_objs)#['libthrasher.c', 'iov.c', 'master_thrasher.c'])
+env.Program('thrashd', thrashd_objs)
+env.Program('master_thrasher', master_thrasher_objs)
 
 
 if libthrash_test:
