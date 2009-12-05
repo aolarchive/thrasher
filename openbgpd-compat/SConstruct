@@ -1,6 +1,0 @@
-#!/usr/bin/python
-
-env = Environment()
-
-env.Object('buffer')
-env.Object('imsg')

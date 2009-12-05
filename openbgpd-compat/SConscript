@@ -1,6 +1,8 @@
 #!/usr/bin/python
 
-env = Environment()
+Import('nenv')
+
+env = nenv.Clone() 
 
 env.Object('buffer')
 env.Object('imsg')
