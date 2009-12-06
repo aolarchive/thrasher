@@ -496,6 +496,27 @@ block_addr(client_conn_t * conn, uint32_t addr)
     return bnode;
 }
 
+qstats_t *
+create_stats_node(uint32_t saddr, const char *key, GHashTable *tbl)
+{
+    qstats_t *snode;
+
+    if (!saddr || !key || !tbl)
+	return NULL;
+
+    if (!(snode = calloc(sizeof(qstats_t), 1)))
+    {
+	LOG("OOM: %s", strerror(errno));
+	exit(1);
+    }
+   
+    snode->saddr = saddr;
+    snode->key   = strdup(key);
+    snode->table = tbl;
+
+    return snode;
+}
+
 int
 update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
 {
@@ -523,21 +544,13 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
 
     stats = g_hash_table_lookup(table, key);
 
-    if (!stats) {
-
+    if (!stats) 
+    {
         /* 
          * create a new statistics table for this type 
          */
-
-        if (!(stats = malloc(sizeof(qstats_t)))) {
-            LOG("Out of memory: %s", strerror(errno));
-            exit(1);
-        }
-
-        stats->connections = 0;
-        stats->saddr = conn->query.saddr;
-        stats->key = strdup(key);
-        stats->table = table;
+	if (!(stats = create_stats_node(conn->query.saddr, key, table)))
+	    return -1;
 
         /* 
          * insert the new statistics table into its hash 
@@ -552,7 +565,6 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
 
         evtimer_set(&stats->timeout, (void *) expire_stats_node, stats);
         evtimer_add(&stats->timeout, &tv);
-
     }
 #ifdef DEBUG
     LOG("Our stats node is %p (key: %s, table:%p saddr:%u)", stats,
@@ -589,6 +601,7 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         return 1;
     }
 
+    /* not blocked */
     return 0;
 }
 
@@ -734,10 +747,10 @@ do_thresholding(client_conn_t * conn)
         snprintf(hkey, hkeylen - 1, "%u%s", conn->query.saddr,
                  conn->query.host);
 
-        if (uri_check && update_thresholds(conn, ukey, stat_type_uri))
+        if (uri_check && update_thresholds(conn, ukey, stat_type_uri) == 1)
             blocked = 1;
 
-        if (site_check && update_thresholds(conn, hkey, stat_type_host))
+        if (site_check && update_thresholds(conn, hkey, stat_type_host) == 1)
             blocked = 1;
 
         break;
@@ -758,7 +771,7 @@ do_thresholding(client_conn_t * conn)
 
         snprintf(hkey, hkeylen - 1, "%u", conn->query.saddr);
 
-        if (update_thresholds(conn, hkey, stat_type_address))
+        if (update_thresholds(conn, hkey, stat_type_address) == 1)
             blocked = 1;
 
         break;
@@ -791,7 +804,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
                        sizeof(uint32_t) +
                        sizeof(uint8_t) : sizeof(uint8_t));
 
-    if (do_thresholding(conn))
+    if (do_thresholding(conn) == 1)
         blocked = 1;
     else
         blocked = 0;
@@ -805,7 +818,6 @@ client_process_data(int sock, short which, client_conn_t * conn)
     ioret = write_iov(&conn->data, sock);
 
     if (ioret < 0) {
-        LOG("Hey there");
         free_client_conn(conn);
         close(sock);
         return;
@@ -1395,12 +1407,6 @@ parse_args(int argc, char **argv)
 
     static char    *help =
         "Copyright AOL LLC 2008-2009\n\n"
-        "The main goal of this project is to allow a farm of autonomous servers to \n"
-        "collect and block malicious addresses maliciously attacking services.\n\n"
-        "Initially derived to solve the issues with thresholding HTTP connections via \n"
-        "Apache (unable to collect stats between forks in mpm_worker, unable to sync \n"
-        "stats on a load balanced farm) this has turned into a service that many \n"
-        "applications can use.\n\n"
         "Options: \n"
         "   -h:        Help me!!\n"
         "   -v:        Version\n" "   -c <file>: Configuration file\n";
