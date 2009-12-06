@@ -49,6 +49,8 @@ thrashd_objs = ['iov.c', 'thrashd.c']
 master_thrasher_objs = ['libthrasher.c', 'iov.c', 'master_thrasher.c']
 
 if ARGUMENTS.get('bgp'):
+    nenv = env.Clone()
+    Export('nenv')
     SConscript(['openbgpd-compat/SConscript'])
     env.Append(CFLAGS='-Iopenbgpd-compat/')
     env.Append(CFLAGS='-DWITH_BGP')

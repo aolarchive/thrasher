@@ -50,7 +50,9 @@ static /**/const char *const rcsid[] = { (char *)rcsid, "\100(#)" msg }
 # include <stdint.h>
 #endif
 #ifdef HAVE_SYS_BITYPES_H
+#ifndef PLATFORM_OPENBSD
 # include <sys/bitypes.h> /* For u_intXX_t */
+#endif
 #endif
 #ifdef HAVE_SYS_STAT_H
 # include <sys/stat.h>
