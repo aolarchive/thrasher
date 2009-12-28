@@ -117,9 +117,9 @@ main(int argc, char **argv)
 
     sock = thrash_bgp_connect("/var/run/bgpd.sock");
 
-    printf("%s\n", 
-	    thrash_bgp_inject(addr, community, sock) ? 
-	    "unsuccessful":"successful");
+    printf("%s\n",
+           thrash_bgp_inject(addr, community, sock) ?
+           "unsuccessful" : "successful");
 
     if (community)
         free(community);

@@ -2,10 +2,10 @@
 
 extern int      rbl_queries;
 extern int      rbl_max_queries;
-extern uint32_t rbl_negcache_timeout; 
-extern GTree    *rbl_negative_cache;
-extern char     *rbl_zone;
-extern int       syslog_enabled;
+extern uint32_t rbl_negcache_timeout;
+extern GTree   *rbl_negative_cache;
+extern char    *rbl_zone;
+extern int      syslog_enabled;
 
 void
 expire_rbl_negcache(int sock, short which, rbl_negcache_t * rnode)
@@ -46,7 +46,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
 
     if (result != DNS_ERR_NONE || count <= 0 ||
         type != DNS_IPv4_A || ttl < 0) {
-        /* 
+        /*
          * we must cache the negative answer so we don't kill our rbl
          * server 
          */
@@ -70,7 +70,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
         return;
     }
 
-    /* 
+    /*
      * insert the entry into our holddown list 
      */
 #ifdef DEBUG
@@ -144,5 +144,3 @@ make_rbl_query(uint32_t addr)
 
     free(query);
 }
-
-

@@ -7,22 +7,24 @@
 #define MAX_URI_SIZE  1500
 #define MAX_HOST_SIZE 1500
 
-/* blah */
+/*
+ * blah 
+ */
 
 char           *process_name;
 uint32_t        uri_check;
-uint32_t site_check;
-uint32_t addr_check;
-char    *bind_addr;
-uint16_t bind_port;
-uint32_t soft_block_timeout;
-block_ratio_t site_ratio;
-block_ratio_t uri_ratio;
-block_ratio_t addr_ratio;
+uint32_t        site_check;
+uint32_t        addr_check;
+char           *bind_addr;
+uint16_t        bind_port;
+uint32_t        soft_block_timeout;
+block_ratio_t   site_ratio;
+block_ratio_t   uri_ratio;
+block_ratio_t   addr_ratio;
 struct event    server_event;
-int      server_port;
-uint32_t qps;
-uint32_t qps_last;
+int             server_port;
+uint32_t        qps;
+uint32_t        qps_last;
 struct event    qps_event;
 static int      rundaemon;
 int             syslog_enabled;
@@ -31,8 +33,8 @@ static char    *rbl_ns;
 int             rbl_max_queries;
 int             rbl_queries;
 uint32_t        rbl_negcache_timeout;
-uint64_t total_blocked_connections;
-uint64_t total_queries;
+uint64_t        total_blocked_connections;
+uint64_t        total_queries;
 GSList         *current_connections;
 GTree          *current_blocks;
 GHashTable     *uri_table;
@@ -211,7 +213,7 @@ remove_holddown(uint32_t addr)
 void
 expire_bnode(int sock, short which, blocked_node_t * bnode)
 {
-    /* 
+    /*
      * blocked node expiration 
      */
     LOG("expired address %s after %u hits",
@@ -220,13 +222,13 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
     evtimer_del(&bnode->timeout);
     remove_holddown(bnode->saddr);
 
-    /* 
+    /*
      * which will tell us whether this is a timer or not,
      * since manual removes will set which to 0, we skip
      * recently_blocked insert 
      */
     if (recently_blocked && which) {
-        /* 
+        /*
          * if we have our moving ratios enabled we 
          * put the blocked node into recently_blocked
          */
@@ -234,22 +236,22 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
 
         evtimer_del(&bnode->recent_block_timeout);
 
-        /* 
+        /*
          * slide our windows around 
          */
         slide_ratios(bnode);
 
-        /* 
+        /*
          * reset our count 
          */
         bnode->count = 0;
 
-        /* 
+        /*
          * load this guy up into our recently blocked list 
          */
         g_tree_insert(recently_blocked, &bnode->saddr, bnode);
 
-        /* 
+        /*
          * set our timeout to the global 
          */
         tv.tv_sec = recently_blocked_timeout;
@@ -292,12 +294,12 @@ expire_stats_node(int sock, short which, qstats_t * stat_node)
         stat_node->key, stat_node->table);
 #endif
 
-    /* 
+    /*
      * remove the timers 
      */
     evtimer_del(&stat_node->timeout);
 
-    /* 
+    /*
      * remove this entry from the designated hash table 
      */
     g_hash_table_remove(stat_node->table, stat_node->key);
@@ -312,7 +314,7 @@ block_addr(client_conn_t * conn, uint32_t addr)
     blocked_node_t *bnode;
     struct timeval  tv;
 
-    /* 
+    /*
      * create a new blocked node structure 
      */
     if (!(bnode = malloc(sizeof(blocked_node_t)))) {
@@ -328,18 +330,18 @@ block_addr(client_conn_t * conn, uint32_t addr)
     if (conn)
         bnode->first_seen_addr = conn->conn_addr;
     else
-        /* 
+        /*
          * sometimes we don't get a conn struct, this can be due to other 
          * types of blocking - RBL for example 
          */
         bnode->first_seen_addr = 0;
 
-    /* 
+    /*
      * insert the blocked node into our tree of held down addresses 
      */
     g_tree_insert(current_blocks, &bnode->saddr, bnode);
 
-    /* 
+    /*
      * add our soft timeout for this node 
      */
     tv.tv_sec = soft_block_timeout;
@@ -348,7 +350,9 @@ block_addr(client_conn_t * conn, uint32_t addr)
     evtimer_set(&bnode->timeout, (void *) expire_bnode, bnode);
     evtimer_add(&bnode->timeout, &tv);
 #ifdef WITH_BGP
-    /* XXX TEST XXX */
+    /*
+     * XXX TEST XXX 
+     */
     bgp_community_t cm;
     cm.asn = 667;
     cm.community = 30;
@@ -358,22 +362,21 @@ block_addr(client_conn_t * conn, uint32_t addr)
     return bnode;
 }
 
-qstats_t *
-create_stats_node(uint32_t saddr, const char *key, GHashTable *tbl)
+qstats_t       *
+create_stats_node(uint32_t saddr, const char *key, GHashTable * tbl)
 {
-    qstats_t *snode;
+    qstats_t       *snode;
 
     if (!saddr || !key || !tbl)
-	return NULL;
+        return NULL;
 
-    if (!(snode = calloc(sizeof(qstats_t), 1)))
-    {
-	LOG("OOM: %s", strerror(errno));
-	exit(1);
+    if (!(snode = calloc(sizeof(qstats_t), 1))) {
+        LOG("OOM: %s", strerror(errno));
+        exit(1);
     }
-   
+
     snode->saddr = saddr;
-    snode->key   = strdup(key);
+    snode->key = strdup(key);
     snode->table = tbl;
 
     return snode;
@@ -406,20 +409,19 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
 
     stats = g_hash_table_lookup(table, key);
 
-    if (!stats) 
-    {
-        /* 
+    if (!stats) {
+        /*
          * create a new statistics table for this type 
          */
-	if (!(stats = create_stats_node(conn->query.saddr, key, table)))
-	    return -1;
+        if (!(stats = create_stats_node(conn->query.saddr, key, table)))
+            return -1;
 
-        /* 
+        /*
          * insert the new statistics table into its hash 
          */
         g_hash_table_insert(table, stats->key, stats);
 
-        /* 
+        /*
          * now set an expire timer for this qstat_t node 
          */
         tv.tv_sec = ratio->timelimit;
@@ -433,13 +435,13 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         stats->key, stats->table, stats->saddr);
 #endif
 
-    /* 
+    /*
      * increment our connection counter 
      */
     stats->connections++;
 
     if (stats->connections >= ratio->num_connections) {
-        /* 
+        /*
          * we seemed to have hit a threshold 
          */
         blocked_node_t *bnode;
@@ -463,7 +465,9 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         return 1;
     }
 
-    /* not blocked */
+    /*
+     * not blocked 
+     */
     return 0;
 }
 
@@ -485,11 +489,11 @@ do_thresholding(client_conn_t * conn)
     ukey = NULL;
     hkey = NULL;
 
-    /* 
+    /*
      * first check if we already have a block somewhere 
      */
     if ((bnode = g_tree_lookup(current_blocks, &conn->query.saddr))) {
-        /* 
+        /*
          * this connection seems to be blocked, reset our block timers
          * and continue on 
          */
@@ -500,7 +504,7 @@ do_thresholding(client_conn_t * conn)
         evtimer_set(&bnode->timeout, (void *) expire_bnode, bnode);
         evtimer_add(&bnode->timeout, &tv);
 
-        /* 
+        /*
          * increment our stats counter 
          */
         bnode->count++;
@@ -511,19 +515,19 @@ do_thresholding(client_conn_t * conn)
     if (recently_blocked && (bnode =
                              g_tree_lookup(recently_blocked,
                                            &conn->query.saddr))) {
-        /* 
+        /*
          * this address has been recently expired from the current_blocks
          * and placed into the recently_blocked list. 
          */
         if (bnode->count++ == 0) {
-            /* 
+            /*
              * This is the first packet we have seen from this address 
              * since it was put into the recently_blocked tree. 
              */
             evtimer_del(&bnode->recent_block_timeout);
 
 
-            /* 
+            /*
              * since we only end up in the recently_blocked list after 
              * a node has been blocked, then expired via expire_bnode(), 
              * expire_bnode() shifts around the ratios (bnode->ratio)
@@ -532,7 +536,7 @@ do_thresholding(client_conn_t * conn)
             tv.tv_sec = bnode->ratio.timelimit;
             tv.tv_usec = 0;
 
-            /* 
+            /*
              * if this timer is every reached, it means that we never
              * hit our ratio, thus we need to expire it from the
              * recently_blocked list 
@@ -544,22 +548,22 @@ do_thresholding(client_conn_t * conn)
         }
 
         if (bnode->count >= bnode->ratio.num_connections) {
-            /* 
+            /*
              * this connection deserves to be blocked 
              */
 
-            /* 
+            /*
              * remove from our recently blocked list 
              */
             evtimer_del(&bnode->recent_block_timeout);
             g_tree_remove(recently_blocked, &conn->query.saddr);
 
-            /* 
+            /*
              * insert into our block tree 
              */
             g_tree_insert(current_blocks, &bnode->saddr, bnode);
 
-            /* 
+            /*
              * set our timeout to the normal timelimit 
              */
             tv.tv_sec = soft_block_timeout;
@@ -574,11 +578,11 @@ do_thresholding(client_conn_t * conn)
         return 0;
     }
 
-    /* 
+    /*
      * we are currently not blocked 
      */
 
-    /* 
+    /*
      * next we query our RBL server if applicable. NOTE: this will not
      * block immediately, this is a post check. This is so that we don't
      * block on the operation 
@@ -612,12 +616,13 @@ do_thresholding(client_conn_t * conn)
         if (uri_check && update_thresholds(conn, ukey, stat_type_uri) == 1)
             blocked = 1;
 
-        if (site_check && update_thresholds(conn, hkey, stat_type_host) == 1)
+        if (site_check
+            && update_thresholds(conn, hkey, stat_type_host) == 1)
             blocked = 1;
 
         break;
     case TYPE_THRESHOLD_v2:
-        /* 
+        /*
          * with v2 we only care about the source-address 
          */
 
@@ -657,7 +662,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
     int             blocked;
 
     if (!conn->data.buf)
-        /* 
+        /*
          * if the connection has an ID, then set it to 5 bytes of reading, 
          * else make it only 1 byte 
          */
@@ -695,7 +700,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
     reset_iov(&conn->data);
     reset_query(&conn->query);
 
-    /* 
+    /*
      * we've done all our work on this, go back to the beginning 
      */
     event_set(&conn->event, sock, EV_READ,
@@ -765,7 +770,7 @@ client_read_payload(int sock, short which, client_conn_t * conn)
 void
 client_read_v3_header(int sock, short which, client_conn_t * conn)
 {
-    /* 
+    /*
      * version 3 header includes an extra 32 bit field at the start of
      * the packet. This allows a client to set an ID which will be echoed
      * along with the response. Otherwise it's just like v1 
@@ -798,7 +803,7 @@ client_read_v3_header(int sock, short which, client_conn_t * conn)
     LOG("Got ident %u", ntohs(conn->id));
 #endif
 
-    /* 
+    /*
      * go back to reading a v1 like packet 
      */
     event_set(&conn->event, sock, EV_READ,
@@ -834,7 +839,7 @@ client_read_v2_header(int sock, short which, client_conn_t * conn)
     conn->query.saddr = saddr;
     reset_iov(&conn->data);
 
-    /* 
+    /*
      * v2 allows us to just recv a source address, thus we can go directly 
      * into processing the data 
      */
@@ -927,7 +932,7 @@ client_read_injection(int sock, short which, client_conn_t * conn)
 
     switch (conn->type) {
     case TYPE_INJECT:
-        /* 
+        /*
          * make sure the node doesn't already exist 
          */
         if ((bnode = g_tree_lookup(current_blocks, &saddr))) {
@@ -936,20 +941,20 @@ client_read_injection(int sock, short which, client_conn_t * conn)
             break;
         }
 
-        /* 
+        /*
          * this is starting to get a little hacky I think. We can re-factor
          * if I ever end up doing any other types of features 
          */
         if (recently_blocked &&
             (bnode = g_tree_lookup(recently_blocked, &saddr)))
-            /* 
+            /*
              * remove the bnode from the recently blocked list 
              * so the bnode is now set to this instead of a new
              * allocd version 
              */
         {
             g_tree_remove(recently_blocked, &saddr);
-            /* 
+            /*
              * unset the recently_blocked timeout 
              */
             evtimer_del(&bnode->recent_block_timeout);
@@ -1007,7 +1012,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
     }
 
     if (ioret > 0) {
-        /* 
+        /*
          * what? can't get 1 byte? lame 
          */
         free_client_conn(conn);
@@ -1023,7 +1028,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
 #endif
     switch (type) {
     case TYPE_THRESHOLD_v1:
-        /* 
+        /*
          * thresholding analysis with uri/host  
          */
         event_set(&conn->event, sock, EV_READ,
@@ -1031,7 +1036,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
         event_add(&conn->event, 0);
         break;
     case TYPE_THRESHOLD_v2:
-        /* 
+        /*
          * thresholding for IP analysis only 
          */
         event_set(&conn->event, sock, EV_READ,
@@ -1039,7 +1044,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
         event_add(&conn->event, 0);
         break;
     case TYPE_THRESHOLD_v3:
-        /* 
+        /*
          * just like v1 but with a 32bit identification header 
          */
         event_set(&conn->event, sock, EV_READ,

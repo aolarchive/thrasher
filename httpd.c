@@ -24,7 +24,7 @@ extern GTree   *current_blocks;
 extern GSList  *current_connections;
 
 gboolean
-fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer * buf)
+fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer *buf)
 {
     char           *blockedaddr;
     char           *triggeraddr;

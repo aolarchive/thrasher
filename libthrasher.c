@@ -122,10 +122,9 @@ thrash_client_write(int sock, short which, thrash_client_t * cli)
 
     reset_iov(&cli->data);
 
-    if (cli->type == TYPE_INJECT || cli->type == TYPE_REMOVE)
-    {
-	cli->resp_cb(cli, NULL);
-	return;
+    if (cli->type == TYPE_INJECT || cli->type == TYPE_REMOVE) {
+        cli->resp_cb(cli, NULL);
+        return;
     }
 
     event_set(&cli->event, sock, EV_READ,

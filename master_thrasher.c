@@ -89,7 +89,6 @@ main(int argc, char **argv)
         printf("%s\n", help);
         exit(1);
     }
-
 #if 0
     base = event_init();
 
@@ -120,11 +119,10 @@ main(int argc, char **argv)
     thrash_client_settype(lc, pkt_type);
     thrash_client_connect(lc);
 
-    for (i = 0; i < argc; i++)
-    {
-	printf("%s\n", argv[i]);
-	thrash_client_lookup(lc, inet_addr(argv[i]), NULL);
-	event_base_loop(base, 0);
+    for (i = 0; i < argc; i++) {
+        printf("%s\n", argv[i]);
+        thrash_client_lookup(lc, inet_addr(argv[i]), NULL);
+        event_base_loop(base, 0);
     }
 
     return 0;
