@@ -27,6 +27,8 @@
 #endif
 
 #include "iov.h"
+#include "rbl.h"
+#include "httpd.h"
 
 #define LOG(x,s...) do { \
     if (!syslog_enabled) { \
@@ -129,11 +131,6 @@ typedef struct blocked_node {
 		struct event    recent_block_timeout;
 } blocked_node_t;
 
-typedef struct rbl_negcache {
-    uint32_t        addr;
-    struct event    timeout;
-} rbl_negcache_t;
-
 typedef enum {
     stat_type_uri,
     stat_type_host,
@@ -165,12 +162,6 @@ void free_client_conn(client_conn_t * conn);
 int  uint32_cmp(const void *a, const void *b);
 int  set_nb(int sock);
 
-void rbl_init(void);
-void expire_rbl_negcache(int sock, short which, rbl_negcache_t * rnode);
-void get_rbl_answer(int result, char type, int count, int ttl, struct in_addr *addresses, uint32_t * arg);
-
-void make_rbl_query(uint32_t addr);
-
 void remove_holddown(uint32_t addr);
 void expire_bnode(int sock, short which, blocked_node_t * bnode);
 void expire_recent_bnode(int sock, short which, blocked_node_t *bnode);
@@ -186,16 +177,18 @@ void client_read_v1_header(int sock, short which, client_conn_t * conn);
 void client_read_injection(int sock, short which, client_conn_t * conn);
 void client_read_type(int sock, short which, client_conn_t * conn);
 
+#if 0
 void fill_current_connections(client_conn_t * conn, struct evbuffer *buf);
 gboolean fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer *buf);
 void httpd_put_hips(struct evhttp_request *req, void *args);
 void httpd_put_connections(struct evhttp_request *req, void *args);
 void httpd_put_config(struct evhttp_request *req, void *args);
 void httpd_driver(struct evhttp_request *req, void *arg);
+int webserver_init(void);
+#endif
 
 void server_driver(int sock, short which, void *args);
 int server_init(void);
-int webserver_init(void);
 void qps_init(void);
 
 void qps_reset(int sock, int which, void *args);

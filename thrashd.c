@@ -9,30 +9,30 @@
 
 /* blah */
 
-static char    *process_name;
-static uint32_t uri_check;
-static uint32_t site_check;
-static uint32_t addr_check;
-static char    *bind_addr;
-static uint16_t bind_port;
-static uint32_t soft_block_timeout;
-static block_ratio_t site_ratio;
-static block_ratio_t uri_ratio;
-static block_ratio_t addr_ratio;
+char           *process_name;
+uint32_t        uri_check;
+uint32_t site_check;
+uint32_t addr_check;
+char    *bind_addr;
+uint16_t bind_port;
+uint32_t soft_block_timeout;
+block_ratio_t site_ratio;
+block_ratio_t uri_ratio;
+block_ratio_t addr_ratio;
 struct event    server_event;
-static int      server_port;
-static uint32_t qps;
-static uint32_t qps_last;
+int      server_port;
+uint32_t qps;
+uint32_t qps_last;
 struct event    qps_event;
 static int      rundaemon;
-static int      syslog_enabled;
-static char    *rbl_zone;
+int             syslog_enabled;
+char           *rbl_zone;
 static char    *rbl_ns;
-static int      rbl_max_queries;
-static int      rbl_queries;
-static uint32_t rbl_negcache_timeout;
-static uint64_t total_blocked_connections;
-static uint64_t total_queries;
+int             rbl_max_queries;
+int             rbl_queries;
+uint32_t        rbl_negcache_timeout;
+uint64_t total_blocked_connections;
+uint64_t total_queries;
 GSList         *current_connections;
 GTree          *current_blocks;
 GHashTable     *uri_table;
@@ -201,144 +201,6 @@ slide_ratios(blocked_node_t * bnode)
     bnode->ratio.num_connections = last_conn;
     bnode->ratio.timelimit = last_time;
 }
-
-void
-expire_rbl_negcache(int sock, short which, rbl_negcache_t * rnode)
-{
-#ifdef DEBUG
-    LOG("Expiring negative RBL cache for %u", rnode->addr);
-#endif
-
-    if (!rnode)
-        return;
-
-    evtimer_del(&rnode->timeout);
-    g_tree_remove(rbl_negative_cache, &rnode->addr);
-    free(rnode);
-}
-
-void
-get_rbl_answer(int result, char type, int count, int ttl,
-               struct in_addr *addresses, uint32_t * arg)
-{
-    uint32_t        addr;
-    qstats_t        qsnode;
-    client_conn_t   cconn;
-    struct in_addr *in_addrs;
-#ifdef DEBUG
-    LOG("Got an answer for address %u", arg ? *arg : 0);
-#endif
-
-    if (!arg)
-        return;
-
-    addr = *arg;
-    in_addrs = NULL;
-
-    free(arg);
-
-    rbl_queries -= 1;
-
-    if (result != DNS_ERR_NONE || count <= 0 ||
-        type != DNS_IPv4_A || ttl < 0) {
-        /* 
-         * we must cache the negative answer so we don't kill our rbl
-         * server 
-         */
-        rbl_negcache_t *rnode;
-        struct timeval  tv;
-
-        if (result != DNS_ERR_NOTEXIST)
-            return;
-
-        rnode = malloc(sizeof(rbl_negcache_t));
-        rnode->addr = addr;
-
-        tv.tv_sec = rbl_negcache_timeout;
-        tv.tv_usec = 0;
-
-        evtimer_set(&rnode->timeout, (void *) expire_rbl_negcache, rnode);
-        evtimer_add(&rnode->timeout, &tv);
-
-        g_tree_insert(rbl_negative_cache, &rnode->addr, rnode);
-
-        return;
-    }
-
-    /* 
-     * insert the entry into our holddown list 
-     */
-#ifdef DEBUG
-    LOG("RBL Server thinks %u is bad! BADBOY!", htonl(addr));
-#endif
-    qsnode.saddr = htonl(addr);
-
-    if (in_addrs) {
-        cconn.conn_addr = (uint32_t) in_addrs[0].s_addr;
-        block_addr(&cconn, qsnode.saddr);
-    } else
-        block_addr(NULL, qsnode.saddr);
-
-    LOG("holding down address %s triggered by RBL",
-        inet_ntoa(*(struct in_addr *) &qsnode.saddr));
-}
-
-void
-make_rbl_query(uint32_t addr)
-{
-    char           *query;
-    char           *addr_str;
-    uint32_t       *addrarg;
-    int             name_sz;
-
-    addr = htonl(addr);
-
-    if (g_tree_lookup(rbl_negative_cache, &addr)) {
-#if DEBUG
-        LOG("addr %u already in negative cache, not querying rbl", addr);
-#endif
-        return;
-    }
-
-    if ((rbl_max_queries) && rbl_queries >= rbl_max_queries) {
-#if DEBUG
-        LOG("Cannot send query, RBL queue filled to the brim! (%u)", addr);
-#endif
-        return;
-    }
-
-    addr_str = inet_ntoa(*(struct in_addr *) &addr);
-
-    if (!addr_str)
-        return;
-
-    name_sz = strlen(addr_str) + strlen(rbl_zone) + 4;
-
-    if (!(query = malloc(name_sz))) {
-        LOG("Cannot allocate memory: %s", strerror(errno));
-        exit(1);
-    }
-
-    snprintf(query, name_sz - 1, "%s.%s", addr_str, rbl_zone);
-
-#if DEBUG
-    LOG("Making RBL Request for %s", query);
-#endif
-
-    if (!(addrarg = malloc(sizeof(uint32_t)))) {
-        LOG("Cannot allocate memory: %s", strerror(errno));
-        exit(1);
-    }
-
-    memcpy(addrarg, &addr, sizeof(uint32_t));
-
-    rbl_queries += 1;
-    evdns_resolve_ipv4(query, 0,
-                       (void *) get_rbl_answer, (void *) addrarg);
-
-    free(query);
-}
-
 
 void
 remove_holddown(uint32_t addr)
@@ -1428,146 +1290,6 @@ parse_args(int argc, char **argv)
         }
     }
 
-    return 0;
-}
-
-gboolean
-fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer * buf)
-{
-    char           *blockedaddr;
-    char           *triggeraddr;
-
-    blockedaddr = strdup(inet_ntoa(*(struct in_addr *) &val->saddr));
-
-    triggeraddr =
-        strdup(inet_ntoa(*(struct in_addr *) &val->first_seen_addr));
-
-    if (blockedaddr && triggeraddr)
-        evbuffer_add_printf(buf, "%-15s %-15s %-15d\n",
-                            blockedaddr, triggeraddr, val->count);
-
-    if (blockedaddr)
-        free(blockedaddr);
-    if (triggeraddr)
-        free(triggeraddr);
-
-    return FALSE;
-}
-
-void
-fill_current_connections(client_conn_t * conn, struct evbuffer *buf)
-{
-    if (conn == NULL)
-        return;
-
-    evbuffer_add_printf(buf, "    %-15s %-5d %-15s\n",
-                        inet_ntoa(*(struct in_addr *) &conn->conn_addr),
-                        ntohs(conn->conn_port), "ESTABLISHED");
-}
-
-void
-httpd_put_hips(struct evhttp_request *req, void *args)
-{
-    struct evbuffer *buf;
-
-    buf = evbuffer_new();
-
-    evbuffer_add_printf(buf, "%-15s %-15s %-15s\n",
-                        "Blocked IP", "Triggered By", "Count");
-
-    g_tree_foreach(current_blocks, (GTraverseFunc) fill_http_blocks, buf);
-
-    evhttp_send_reply(req, HTTP_OK, "OK", buf);
-    evbuffer_free(buf);
-}
-
-void
-httpd_put_connections(struct evhttp_request *req, void *args)
-{
-    struct evbuffer *buf;
-
-    buf = evbuffer_new();
-
-    evbuffer_add_printf(buf, "\nCurrent active connections\n");
-    evbuffer_add_printf(buf,
-                        "    %-15s %-5s %-15s\n", "Addr", "Port", "State");
-
-    g_slist_foreach(current_connections,
-                    (GFunc) fill_current_connections, buf);
-
-    evhttp_send_reply(req, HTTP_OK, "OK", buf);
-    evbuffer_free(buf);
-}
-
-void
-httpd_put_config(struct evhttp_request *req, void *args)
-{
-    struct evbuffer *buf;
-
-    buf = evbuffer_new();
-
-    evbuffer_add_printf(buf, "Thrashd version: %s (%s) [%s]\n", VERSION,
-                        VERSION_NAME, process_name);
-    evbuffer_add_printf(buf, "Running configuration\n\n");
-    evbuffer_add_printf(buf, "  URI Check Enabled:  %s\n",
-                        uri_check ? "yes" : "no");
-    evbuffer_add_printf(buf, "  Host Check Enabled: %s\n",
-                        site_check ? "yes" : "no");
-    evbuffer_add_printf(buf, "  Addr Check Enabled: %s\n",
-                        addr_check ? "yes" : "no");
-    evbuffer_add_printf(buf, "  Bind addr:          %s\n", bind_addr);
-    evbuffer_add_printf(buf, "  Bind port:          %d\n", bind_port);
-    evbuffer_add_printf(buf, "  Soft block timeout: %d\n\n",
-                        soft_block_timeout);
-    evbuffer_add_printf(buf,
-                        "  Host block ratio: %d hits over %d seconds\n",
-                        site_ratio.num_connections, site_ratio.timelimit);
-    evbuffer_add_printf(buf,
-                        "  URI block ratio:  %d hits over %d seconds\n",
-                        uri_ratio.num_connections, uri_ratio.timelimit);
-    evbuffer_add_printf(buf,
-                        "  ADDR block ratio: %d hits over %d seconds\n\n",
-                        addr_ratio.num_connections, addr_ratio.timelimit);
-    evbuffer_add_printf(buf,
-                        "%d addresses currently in hold-down (%u qps)\n",
-                        g_tree_nnodes(current_blocks), qps_last);
-    evbuffer_add_printf(buf, "Total connections blocked: %llu\n",
-                        total_blocked_connections);
-    evbuffer_add_printf(buf, "Total queries recv: %llu\n", total_queries);
-    evbuffer_add_printf(buf, "DNS Query backlog: %d/%d\n", rbl_queries,
-                        rbl_max_queries);
-
-    evhttp_send_reply(req, HTTP_OK, "OK", buf);
-    evbuffer_free(buf);
-}
-
-
-void
-httpd_driver(struct evhttp_request *req, void *arg)
-{
-    struct evbuffer *buf;
-
-    buf = evbuffer_new();
-
-    evbuffer_add_printf(buf, "Thrashd version: %s [%s]\n", VERSION,
-                        process_name);
-    evhttp_send_reply(req, HTTP_OK, "OK", buf);
-    evbuffer_free(buf);
-}
-
-int
-webserver_init(void)
-{
-    struct evhttp  *httpd;
-    httpd = evhttp_start("0.0.0.0", server_port);
-
-    if (httpd == NULL)
-        return -1;
-
-    evhttp_set_cb(httpd, "/holddowns", httpd_put_hips, NULL);
-    evhttp_set_cb(httpd, "/config", httpd_put_config, NULL);
-    evhttp_set_cb(httpd, "/connections", httpd_put_connections, NULL);
-    evhttp_set_gencb(httpd, httpd_driver, NULL);
     return 0;
 }
 

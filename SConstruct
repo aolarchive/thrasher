@@ -45,7 +45,7 @@ if static:
     env.Append(LINKFLAGS='-static')
 
 
-thrashd_objs = ['iov.c', 'thrashd.c']
+thrashd_objs = ['iov.c', 'thrashd.c', 'rbl.c', 'httpd.c']
 master_thrasher_objs = ['libthrasher.c', 'iov.c', 'master_thrasher.c']
 
 if ARGUMENTS.get('bgp'):
