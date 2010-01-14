@@ -25,11 +25,11 @@ def configure():
 
     # set ldflags
     if 'LDFLAGS' in os.environ:
-        conf.env.Append(LINKFLAGS = os.environ['LDFLAGS'])
+        env.Append(LINKFLAGS = os.environ['LDFLAGS'])
         print 'Checking Custom link flags: %s' % (os.environ['LDFLAGS'])
 
     if 'CFLAGS' in os.environ:
-        conf.env.Append(CFLAGS = os.environ['CFLAGS'])
+        env.Append(CFLAGS = os.environ['CFLAGS'])
         print 'Checking Custom cflags: %s' % (os.environ['CFLAGS'])
 
     # setup the platform
@@ -107,7 +107,7 @@ ranlib_library_message        = '%sRanlib Library %s         ==> %s$TARGET%s' % 
 link_shared_library_message   = '%sLinking Shared Library %s ==> %s$TARGET%s' % \
    (colors['red'], colors['purple'], colors['yellow'], colors['end'])
 
-env = Environment()
+env = Environment(ENV=os.environ)
 configure()
 
 env['CCCOMSTR']     = compile_source_message
