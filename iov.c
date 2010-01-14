@@ -43,7 +43,8 @@ read_iov(iov_t * iovec, int sock)
 {
     int             bytes_read;
 
-    bytes_read = recv(sock, &iovec->buf[iovec->offset], iovec->to_read, 0);
+    bytes_read = recv(sock, &iovec->buf[iovec->offset], iovec->to_read,
+	    MSG_NOSIGNAL);
 
     if (bytes_read <= 0)
         return -1;
