@@ -78,6 +78,7 @@ main(int argc, char **argv)
     int             ret,
                     i;
     struct event_base *base;
+    thrash_client_t *lc;
 
     globals_init();
     ret = parse_args(argc, argv);
@@ -89,28 +90,8 @@ main(int argc, char **argv)
         printf("%s\n", help);
         exit(1);
     }
-#if 0
+
     base = event_init();
-
-    for (i = 0; i < argc; i++) {
-        thrash_client_t *lc;
-        printf("Doing %s\n", argv[i]);
-
-        lc = init_thrash_client();
-        lc->evbase = base;
-        lc->resp_cb = resp_callback;
-        lc->port = thrashd_port;
-        thrash_client_sethost(lc, thrashd_host);
-        thrash_client_settype(lc, pkt_type);
-        thrash_client_connect(lc);
-        thrash_client_lookup(lc, inet_addr(argv[i]), NULL);
-    }
-
-    event_base_loop(base, 0);
-#endif
-    base = event_init();
-
-    thrash_client_t *lc;
     lc = init_thrash_client();
     lc->evbase = base;
     lc->resp_cb = resp_callback;

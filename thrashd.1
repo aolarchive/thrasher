@@ -1,0 +1,113 @@
+.TH "thrashd" 1 "thrashd" "" "version 1.0r19"
+
+.SH Name
+thrashd - a centralized rate-limiting service with many features 
+
+.SH SYNOPSIS
+.B thrashd 
+[ 
+.B -hv 
+] 
+[ 
+.B -c config-file 
+]
+
+.SH DESCRIPTION 
+.B thrashd
+is a service which provides centralized rate-limiting services to one or
+many clients. While it does not have the authority to actively block
+connections, it determines whether a connection
+.B SHOULD
+be blocked. 
+
+At the base, thrashd uses a simplistic ratio based model for determining what is
+and what is not malicious, though more advanced features can be enabled. 
+
+This was originally developed to facilitate a very large farm of webservers, so
+many of the keywords and features may be HTTP sounding. 
+.SH CONFIGURATION 
+There are many configuration options which can be tweaked which can create havoc
+if not understood correctly. It is a good idea to profile your traffic before
+you start using this service. The configuration is a simple INI like file.
+
+.IP "uri-check = (0|1)"
+Enables the URI threshold checks if the value here is 1, otherwise this feature
+is disabled. The default is 1. 
+.IP "host-check = (0|1)"
+Enables the HOST threshold check (e.g., Host: headers in HTTP) if the value is
+1, otherwise this feature is disabled. The default is 1.
+.IP "addr-check = (0|1)"
+Enables the ADDR threshold check. When using v2 type packets (which are 4 byte
+addresses ONLY) this check will be utilized for thresholding if set to 1.
+Otherwise this will be disabled. The default os 0.
+.IP "rand-ratio = (0|1)"
+An advanced option which will enable ratios with a sliding window. The default
+is 0 
+.IP "uri-ratio  = X:Y"
+A ratio based on the incoming address and the URI where X is the number of
+connections and Y being the window of time. 
+.IP "host-ratio = X:Y"
+A ratio based on the incoming address and the HOST where X is the number of
+connections and Y being the window of time.
+.IP "addr-ratio = X:Y"
+A ratio based on 
+.B just
+the address. This is confined within the thrasher v2 packet type.
+.IP "block-timeout <seconds>"
+When an address is determined to be malicious and no further connections are
+made, this number (in seconds) defines the amount of time it should stay in
+persistent memory.
+.IP "rbl-zone <zone>"
+If a DNS RBL system is to be utilized, you must define the zone in which queries
+are sent to. For example if your queries must be formatted
+"1.0.168.192.rbl.zone.com", then this should be set to 'rbl.zone.com'.
+.IP "rbl-negative-cache-timeout <number>
+In order to alleviate contention between the thrasher daemon and the RBL
+service, you may supply a negative cache. If a negative answer (NXDOMAIN) is
+received by the nameserver, it will cache the entry for this many seconds. 
+.IP "rbl-max-queries <num>"
+The max number of outstanding DNS requests that can be made at any given time. 
+.IP "rand-ratio = (0|1)"
+Enabled the random ratios (sliding window) feature. By default, whenever an
+address is deemed "malicious", thrasher will place this entry into a 'currently
+blocked' bucket along with a timeout. All subsequent hits from that address will
+reset this timeout. If the attacker then stops hitting and this timeout is reached 
+it is removed from this bucket and expired from memory completely. 
+.IP
+The inherent problem is that some attackers may figure out that they are being
+rate limited and figure out the windows where they will not be blocked.
+.IP
+In order to thwart such attempts the random ratios were implemented. This will
+dynamically scale connection limits down while sliding time windows up. The
+logic is that instead of simply removing all knowledge of a blocked connection
+after expire we move this address into a 'recently blocked' bucket.
+.IP
+Prior to insertion into the 'recently blocked' bucket, thrasher will generate a
+random ratio for that host. The minimum and maximum ratios can be configured by
+the user (see configuring random ratios section).  
+.IP 
+The pseudo logic is as follows for generating a random ratio.
+.IP
+number_of_connections = random_range(min-ratio.connections,
+max-ratio.connections)
+.IP
+timewindow = random_range(min-ratio.timewindow, max-ratio.timewindow)
+.IP
+new_ratio = number_of_connections:timewindow
+.IP "min-rand-ratio conn:timewindow"
+If the random ratios are enabled, this is the minimum window.
+.IP "max-rand-ratio conn:timewindow"
+If the random ratios are enabled, this is the maximum window. 
+.IP "recently-blocked-timeout <num>"
+If the random ratios are enabled, a recently-blocked cache is created for the
+expired blocked address. If no further connections from this address are seen in
+this amount of time, it is expired from the recently-blocked bucket. 
+.IP "listen-port <port>"
+Sets the port in which clients send their data for thresholding analysis.
+Default is 1972
+.IP "http-listen-port <port>"
+Sets the port in which the http based statistics interface listens. Default is
+1979. 
+.IP "name = text"
+Allows an administrator to give this instance a name. Useful for the statistics
+interface.
