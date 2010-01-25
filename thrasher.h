@@ -88,7 +88,7 @@ typedef struct query {
     uint32_t        saddr;
     uint16_t        host_len;
     uint16_t        uri_len;
-		uint32_t        ident;
+    uint32_t        ident;
     char           *host;
     char           *uri;
 } query_t;

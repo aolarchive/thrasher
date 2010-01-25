@@ -592,7 +592,9 @@ do_thresholding(client_conn_t * conn)
         make_rbl_query(conn->query.saddr);
 
     switch (conn->type) {
+
     case TYPE_THRESHOLD_v1:
+    case TYPE_THRESHOLD_v3:
         ukeylen = conn->query.uri_len + 13;
 
         if (!(ukey = calloc(ukeylen, 1))) {
@@ -675,6 +677,10 @@ client_process_data(int sock, short which, client_conn_t * conn)
         blocked = 1;
     else
         blocked = 0;
+
+#if DEBUG
+    LOG("saddr %u block stats: %d\n", conn->query.saddr, blocked);
+#endif
 
     if (conn->id) {
         memcpy(conn->data.buf, &conn->id, sizeof(uint32_t));
@@ -799,7 +805,7 @@ client_read_v3_header(int sock, short which, client_conn_t * conn)
     reset_iov(&conn->data);
 
 #ifdef DEBUG
-    LOG("Got ident %u", ntohs(conn->id));
+    LOG("Got ident %u", ntohl(conn->id));
 #endif
 
     /*
@@ -881,6 +887,7 @@ client_read_v1_header(int sock, short which, client_conn_t * conn)
     hostlen = ntohs(hostlen);
 
 #ifdef DEBUG
+    LOG("saddr = %u", saddr);
     LOG("ulen %d hlen %d", urilen, hostlen);
 #endif
 
