@@ -150,7 +150,7 @@ int
 webserver_init(void)
 {
     struct evhttp  *httpd;
-    httpd = evhttp_start("0.0.0.0", server_port);
+    httpd = evhttp_start(bind_addr, server_port);
 
     if (httpd == NULL)
         return -1;

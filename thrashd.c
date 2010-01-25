@@ -776,7 +776,6 @@ client_read_v3_header(int sock, short which, client_conn_t * conn)
      * along with the response. Otherwise it's just like v1 
      */
     int             ioret;
-    uint32_t        id;
 
     if (!conn->data.buf)
         initialize_iov(&conn->data, sizeof(uint32_t));
@@ -1269,8 +1268,7 @@ parse_args(int argc, char **argv)
     extern int      optind,
                     opterr,
                     optopt;
-    int             c,
-                    option_index = 0;
+    int             c;
 
     static char    *help =
         "Copyright AOL LLC 2008-2009\n\n"
@@ -1578,6 +1576,7 @@ drop_perms(void)
             exit(1);
         }
     }
+    return 0;
 }
 
 int

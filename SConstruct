@@ -45,6 +45,7 @@ def configure():
         print "Unknown platform %s" % pl
         sys.exit(1)
 
+    env.Append(CFLAGS = '-Wall')
 
     enable_bgp    = ARGUMENTS.get('enable-bgp')
     enable_dbg    = ARGUMENTS.get('enable-debug')
@@ -110,12 +111,14 @@ link_shared_library_message   = '%sLinking Shared Library %s ==> %s$TARGET%s' % 
 env = Environment(ENV=os.environ)
 configure()
 
+'''
 env['CCCOMSTR']     = compile_source_message
 env['SHCCCOMSTR']   = compile_shared_source_message
 env['ARCOMSTR']     = link_library_message
 env['RANLIBCOMSTR'] = ranlib_library_message
 env['SHLINKCOMSTR'] = link_shared_library_message
 env['LINKCOMSTR']   = link_program_message
+'''
 
 env.Program('thrashd', objects + ['thrashd.c'])
 env.Program('master_thrasher', ['libthrasher.c', 'iov.c', 'master_thrasher.c'])
