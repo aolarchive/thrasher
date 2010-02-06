@@ -12,6 +12,15 @@ def configure():
     check_headers = ['event.h', 'evhttp.h']
     check_libs    = ['event']
 
+    if 'LDFLAGS' in os.environ:
+        env.Append(LINKFLAGS = os.environ['LDFLAGS'])
+        print 'Checking Custom link flags: %s' % (os.environ['LDFLAGS'])
+
+    if 'CFLAGS' in os.environ:
+        env.Append(CFLAGS = os.environ['CFLAGS'])
+        print 'Checking Custom cflags: %s' % (os.environ['CFLAGS'])
+
+
     for header in check_headers:
         if not conf.CheckCHeader(header):
             sys.exit(1)
@@ -22,15 +31,6 @@ def configure():
 
     # check for glib2 stuff 
     env.ParseConfig('pkg-config --cflags --libs glib-2.0')
-
-    # set ldflags
-    if 'LDFLAGS' in os.environ:
-        env.Append(LINKFLAGS = os.environ['LDFLAGS'])
-        print 'Checking Custom link flags: %s' % (os.environ['LDFLAGS'])
-
-    if 'CFLAGS' in os.environ:
-        env.Append(CFLAGS = os.environ['CFLAGS'])
-        print 'Checking Custom cflags: %s' % (os.environ['CFLAGS'])
 
     # setup the platform
     pl = platform.system()
