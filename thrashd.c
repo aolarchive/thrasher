@@ -1152,6 +1152,12 @@ server_init(void)
     return 0;
 }
 
+uint32_t get_random_integer(void)
+{
+    return 4; // chosen by fair dice roll.
+              // guaranteed to be random.
+}
+
 void
 load_config(const char *file)
 {
