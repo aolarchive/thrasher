@@ -30,17 +30,34 @@
 #include "rbl.h"
 #include "httpd.h"
 
-#define LOG(x,s...) do { \
-    if (!syslog_enabled) { \
-      time_t t = time(NULL); \
-      char *d = ctime(&t); \
-      fprintf(stderr,"%.*s %s[%d] %s(): ",\
+#if 0
+#define LOG(f, x, s...) do { \
+    if (syslog_enabled) {\
+    	syslog(LOG_NOTICE, x, ##, s); }\
+    else {\
+      	time_t t = time(NULL); \
+      	char *d = ctime(&t); \
+      	fprintf(f,"%.*s %s[%d] %s(): ",\
             (int)strlen(d)-1,d, __FILE__,\
             __LINE__,__FUNCTION__); \
-      fprintf(stderr,x,## s); \
-      fprintf(stderr,"\n");\
-    } else { \
-      syslog(LOG_NOTICE, x, ## s); \
+      	fprintf(f,x,## s); \
+      	fprintf(f,"\n");\
+    } \
+} while(0);
+#endif
+
+#define LOG(f, x, ...) do { \
+    if (syslog_enabled) {\
+        syslog(LOG_NOTICE, x,  __VA_ARGS__); }\
+    else {\
+        time_t t = time(NULL); \
+        char *d = ctime(&t); \
+        fprintf(f,"%.*s %s[%d] %s(): ",\
+            (int)strlen(d)-1,d, __FILE__,\
+            __LINE__,__FUNCTION__); \
+        fprintf(f,x,__VA_ARGS__); \
+        fprintf(f,"\n");\
+	fflush(f); \
     } \
 } while(0);
 

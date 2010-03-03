@@ -46,6 +46,7 @@ GHashTable     *host_states;
 GKeyFile       *config_file;
 GTree          *recently_blocked;
 GRand          *randdata;
+FILE           *logfile;
 
 static uint32_t recently_blocked_timeout;
 static block_ratio_t minimum_random_ratio;
@@ -79,7 +80,7 @@ free_client_conn(client_conn_t * conn)
     if (!conn)
         return;
 
-    LOG("Lost connection from %s:%d",
+    LOG(logfile, "Lost connection from %s:%d",
         inet_ntoa(*(struct in_addr *) &conn->conn_addr),
         ntohs(conn->conn_port));
 
@@ -144,6 +145,7 @@ globals_init(void)
     recently_blocked_timeout = 120;
     drop_user = NULL;
     drop_group = NULL;
+    logfile = stdout;
 }
 
 int
@@ -198,7 +200,7 @@ slide_ratios(blocked_node_t * bnode)
                                      maximum_random_ratio.timelimit);
     }
 #ifdef DEBUG
-    LOG("our new random ratio is %d:%d", last_conn, last_time);
+    LOG(logfile, "our new random ratio is %d:%d", last_conn, last_time);
 #endif
     bnode->ratio.num_connections = last_conn;
     bnode->ratio.timelimit = last_time;
@@ -216,7 +218,7 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
     /*
      * blocked node expiration 
      */
-    LOG("expired address %s after %u hits",
+    LOG(logfile, "expired address %s after %u hits",
         inet_ntoa(*(struct in_addr *) &bnode->saddr), bnode->count);
 
     evtimer_del(&bnode->timeout);
@@ -262,7 +264,7 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
         evtimer_add(&bnode->recent_block_timeout, &tv);
 
 #if DEBUG
-        LOG("Placing %s into recently blocked list with a ratio of %d:%d",
+        LOG(logfile, "Placing %s into recently blocked list with a ratio of %d:%d",
             inet_ntoa(*(struct in_addr *) &bnode->saddr),
             bnode->ratio.num_connections, bnode->ratio.timelimit);
 #endif
@@ -277,7 +279,7 @@ expire_recent_bnode(int sock, short which, blocked_node_t * bnode)
 {
 
 #ifdef DEBUG
-    LOG("expire_recent_bnode(%p) %s",
+    LOG(logfile, "expire_recent_bnode(%p) %s",
         bnode, inet_ntoa(*(struct in_addr *) &bnode->saddr));
 #endif
 
@@ -290,7 +292,7 @@ void
 expire_stats_node(int sock, short which, qstats_t * stat_node)
 {
 #ifdef DEBUG
-    LOG("expire_stats_node(%p) key:%s table:%p", stat_node,
+    LOG(logfile, "expire_stats_node(%p) key:%s table:%p", stat_node,
         stat_node->key, stat_node->table);
 #endif
 
@@ -318,7 +320,7 @@ block_addr(client_conn_t * conn, uint32_t addr)
      * create a new blocked node structure 
      */
     if (!(bnode = malloc(sizeof(blocked_node_t)))) {
-        LOG("Out of memory: %s", strerror(errno));
+        LOG(logfile, "Out of memory: %s", strerror(errno));
         exit(1);
     }
 
@@ -371,7 +373,7 @@ create_stats_node(uint32_t saddr, const char *key, GHashTable * tbl)
         return NULL;
 
     if (!(snode = calloc(sizeof(qstats_t), 1))) {
-        LOG("OOM: %s", strerror(errno));
+        LOG(logfile, "OOM: %s", strerror(errno));
         exit(1);
     }
 
@@ -431,7 +433,7 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         evtimer_add(&stats->timeout, &tv);
     }
 #ifdef DEBUG
-    LOG("Our stats node is %p (key: %s, table:%p saddr:%u)", stats,
+    LOG(logfile, "Our stats node is %p (key: %s, table:%p saddr:%u)", stats,
         stats->key, stats->table, stats->saddr);
 #endif
 
@@ -454,7 +456,7 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         triggeraddr =
             strdup(inet_ntoa(*(struct in_addr *) &bnode->first_seen_addr));
 
-        LOG("holding down address %s triggered by %s",
+        LOG(logfile, "holding down address %s triggered by %s",
             blockedaddr, triggeraddr);
 
         free(blockedaddr);
@@ -598,14 +600,14 @@ do_thresholding(client_conn_t * conn)
         ukeylen = conn->query.uri_len + 13;
 
         if (!(ukey = calloc(ukeylen, 1))) {
-            LOG("Out of memory: %s", strerror(errno));
+            LOG(logfile, "Out of memory: %s", strerror(errno));
             exit(1);
         }
 
         hkeylen = conn->query.host_len + 13;
 
         if (!(hkey = calloc(hkeylen, 1))) {
-            LOG("Out of memory: %s", strerror(errno));
+            LOG(logfile, "Out of memory: %s", strerror(errno));
             exit(1);
         }
 
@@ -634,7 +636,7 @@ do_thresholding(client_conn_t * conn)
         hkeylen = 13;
 
         if (!(hkey = calloc(hkeylen, 1))) {
-            LOG("Out of memory: %s", strerror(errno));
+            LOG(logfile, "Out of memory: %s", strerror(errno));
             exit(1);
         }
 
@@ -679,7 +681,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
         blocked = 0;
 
 #if DEBUG
-    LOG("saddr %u block stats: %d\n", conn->query.saddr, blocked);
+    LOG(logfile, "saddr %u block stats: %d\n", conn->query.saddr, blocked);
 #endif
 
     if (conn->id) {
@@ -720,7 +722,7 @@ client_read_payload(int sock, short which, client_conn_t * conn)
     int             ioret;
 
 #if DEBUG
-    LOG("%d %d", conn->query.uri_len, conn->query.host_len);
+    LOG(logfile, "%d %d", conn->query.uri_len, conn->query.host_len);
 #endif
 
     if (!conn->data.buf)
@@ -745,14 +747,14 @@ client_read_payload(int sock, short which, client_conn_t * conn)
     conn->query.uri = calloc(conn->query.uri_len + 1, 1);
 
     if (!conn->query.uri) {
-        LOG("Out of memory: %s", strerror(errno));
+        LOG(logfile, "Out of memory: %s", strerror(errno));
         exit(1);
     }
 
     conn->query.host = calloc(conn->query.host_len + 1, 1);
 
     if (!conn->query.host) {
-        LOG("Out of memory: %s", strerror(errno));
+        LOG(logfile, "Out of memory: %s", strerror(errno));
         exit(1);
     }
 
@@ -764,7 +766,7 @@ client_read_payload(int sock, short which, client_conn_t * conn)
     reset_iov(&conn->data);
 
 #ifdef DEBUG
-    LOG("host: '%s' uri: '%s'", conn->query.host, conn->query.uri);
+    LOG(logfile, "host: '%s' uri: '%s'", conn->query.host, conn->query.uri);
 #endif
 
     event_set(&conn->event, sock, EV_WRITE,
@@ -805,7 +807,7 @@ client_read_v3_header(int sock, short which, client_conn_t * conn)
     reset_iov(&conn->data);
 
 #ifdef DEBUG
-    LOG("Got ident %u", ntohl(conn->id));
+    LOG(logfile, "Got ident %u", ntohl(conn->id));
 #endif
 
     /*
@@ -887,8 +889,8 @@ client_read_v1_header(int sock, short which, client_conn_t * conn)
     hostlen = ntohs(hostlen);
 
 #ifdef DEBUG
-    LOG("saddr = %u", saddr);
-    LOG("ulen %d hlen %d", urilen, hostlen);
+    LOG(logfile, "saddr = %u", saddr);
+    LOG(logfile, "ulen %d hlen %d", urilen, hostlen);
 #endif
 
     if (urilen > MAX_URI_SIZE || hostlen > MAX_HOST_SIZE ||
@@ -968,7 +970,7 @@ client_read_injection(int sock, short which, client_conn_t * conn)
             bnode = calloc(sizeof(blocked_node_t), 1);
 
         if (!bnode) {
-            LOG("Out of memory: %s", strerror(errno));
+            LOG(logfile, "Out of memory: %s", strerror(errno));
             exit(1);
         }
 
@@ -1030,7 +1032,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
     conn->type = type;
 
 #ifdef DEBUG
-    LOG("type %d", type);
+    LOG(logfile, "type %d", type);
 #endif
     switch (type) {
     case TYPE_THRESHOLD_v1:
@@ -1095,7 +1097,7 @@ server_driver(int sock, short which, void *args)
     client_conn_t  *new_conn = calloc(sizeof(client_conn_t), 1);
 
     if (!new_conn) {
-        LOG("Out of memory: %s", strerror(errno));
+        LOG(logfile, "Out of memory: %s", strerror(errno));
         exit(1);
     }
 
@@ -1103,7 +1105,7 @@ server_driver(int sock, short which, void *args)
     new_conn->conn_addr = (uint32_t) addr.sin_addr.s_addr;
     new_conn->conn_port = (uint16_t) addr.sin_port;
 
-    LOG("New connection from %s:%d",
+    LOG(logfile, "New connection from %s:%d",
         inet_ntoa(*(struct in_addr *) &new_conn->conn_addr),
         ntohs(new_conn->conn_port));
 
@@ -1169,7 +1171,8 @@ load_config(const char *file)
         _c_f_t_str = 1,
         _c_f_t_int,
         _c_f_t_trie,
-        _c_f_t_ratio
+        _c_f_t_ratio,
+	_c_f_t_file
     } _c_f_t;
 
     struct _c_f_in {
@@ -1193,30 +1196,24 @@ load_config(const char *file)
         "thrashd", "daemonize", _c_f_t_int, &rundaemon}, {
         "thrashd", "syslog", _c_f_t_int, &syslog_enabled}, {
         "thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, {
-        "thrashd", "rbl-negative-cache-timeout", _c_f_t_int,
-                &rbl_negcache_timeout}, {
+        "thrashd", "rbl-negative-cache-timeout", _c_f_t_int, &rbl_negcache_timeout}, {
         "thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
         "thrashd", "rbl-max-query", _c_f_t_int, &rbl_max_queries}, {
         "thrashd", "rand-ratio", _c_f_t_trie, &recently_blocked}, {
-        "thrashd", "min-rand-ratio", _c_f_t_ratio, &minimum_random_ratio},
-        {
-        "thrashd", "max-rand-ratio", _c_f_t_ratio, &maximum_random_ratio},
-        {
-        "thrashd", "recently-blocked-timeout", _c_f_t_int,
-                &recently_blocked_timeout}, {
-        "thrashd", "rbl-negative-cache-timeout", _c_f_t_int,
-                &rbl_negcache_timeout}, {
+        "thrashd", "min-rand-ratio", _c_f_t_ratio, &minimum_random_ratio}, {
+        "thrashd", "max-rand-ratio", _c_f_t_ratio, &maximum_random_ratio}, {
+        "thrashd", "recently-blocked-timeout", _c_f_t_int, &recently_blocked_timeout}, {
+        "thrashd", "rbl-negative-cache-timeout", _c_f_t_int, &rbl_negcache_timeout}, {
         "thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, {
         "thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
         "thrashd", "rbl-max-queries", _c_f_t_int, &rbl_max_queries}, {
         "thrashd", "user", _c_f_t_str, &drop_user}, {
-        "thrashd", "group", _c_f_t_str, &drop_group},
+        "thrashd", "group", _c_f_t_str, &drop_group}, {
+	"thrashd", "logfile", _c_f_t_file, &logfile},
 #ifdef WITH_BGP
-        {
-        "thrashd", "bgp-sock", _c_f_t_str, &bgp_sockname},
+        {"thrashd", "bgp-sock", _c_f_t_str, &bgp_sockname},
 #endif
-        {
-        NULL, NULL, 0, NULL}
+        {NULL, NULL, 0, NULL}
     };
 
     config_file = g_key_file_new();
@@ -1224,13 +1221,14 @@ load_config(const char *file)
     flags = G_KEY_FILE_KEEP_COMMENTS;
 
     if (!g_key_file_load_from_file(config_file, file, flags, &error)) {
-        LOG("Error loading config: ");
+        LOG(logfile, "Error loading config: %s", strerror(errno));
         exit(1);
     }
 
     for (i = 0; c_f_in[i].parent != NULL; i++) {
         char          **svar;
         char           *str;
+	FILE          **fvar;
         int            *ivar;
         GTree         **tvar;
         block_ratio_t  *ratio;
@@ -1268,6 +1266,21 @@ load_config(const char *file)
             ratio->timelimit = atoll(splitter[1]);
             g_strfreev(splitter);
             break;
+	case _c_f_t_file:
+	    printf("hi\n");
+	    fvar = (FILE **)c_f_in[i].var;
+	    str  = g_key_file_get_string(config_file,
+		    c_f_in[i].parent,
+		    c_f_in[i].key, NULL);
+
+	    if (!(*fvar = fopen(str, "a+")))
+	    {
+		fprintf(stderr, "Could not open logfile %s\n",
+			strerror(errno));
+		exit(1);
+	    }
+	    printf("jfkdjsafldaksfjadksfklasjfk;djsf;afjkldjsafj\n");
+	    break;
         }
     }
 
@@ -1382,7 +1395,7 @@ syslog_init(char *facility)
     }
 
     if (!(ident = malloc(255))) {
-        LOG("Out of memory: %s", strerror(errno));
+        LOG(logfile, "Out of memory: %s", strerror(errno));
         exit(1);
     }
 
@@ -1407,11 +1420,12 @@ rbl_init(void)
     evdns_set_option("max-timeouts:", "3", DNS_OPTIONS_ALL);
 
     if (evdns_count_nameservers() <= 0) {
-        LOG("Couldn't setup RBL server!");
+        LOG(logfile, "Couldn't setup RBL server! %s", "");
+
         exit(1);
     }
 
-    LOG("RBL Zone '%s' initialized", rbl_zone);
+    LOG(logfile, "RBL Zone '%s' initialized", rbl_zone);
 }
 
 void
@@ -1454,42 +1468,42 @@ daemonize(const char *path)
 void
 log_startup(void)
 {
-    LOG("Name:             %s", process_name);
+    LOG(logfile,"Name:             %s", process_name);
 
     if (uri_check) {
-        LOG("URI Block Ratio:  %u connections within %u seconds",
+        LOG(logfile,"URI Block Ratio:  %u connections within %u seconds",
             uri_ratio.num_connections, uri_ratio.timelimit);
     } else {
-        LOG("URI Block:        DISABLED");
+        LOG(logfile, "URI Block:        DISABLED%s", "");
     }
 
     if (site_check) {
-        LOG("Host Block Ratio: %u connections within %u seconds",
+        LOG(logfile, "Host Block Ratio: %u connections within %u seconds",
             site_ratio.num_connections, site_ratio.timelimit);
     } else {
-        LOG("Host Block:       DISABLED");
+        LOG(logfile, "Host Block:       DISABLED%s", "");
     }
 
     if (addr_check) {
-        LOG("Addr Block Ratio: %u connections within %u seconds",
+        LOG(logfile, "Addr Block Ratio: %u connections within %u seconds",
             addr_ratio.num_connections, addr_ratio.timelimit);
     } else {
-        LOG("Host Block:       DISABLED");
+        LOG(logfile, "Host Block:       DISABLED%s", "");
     }
 
-    LOG("HTTP Listen Port: %d", server_port);
-    LOG("Bind addr:        %s", bind_addr);
-    LOG("Listen Port:      %d", bind_port);
-    LOG("Block Timeout:    %d", soft_block_timeout);
+    LOG(logfile, "HTTP Listen Port: %d", server_port);
+    LOG(logfile, "Bind addr:        %s", bind_addr);
+    LOG(logfile, "Listen Port:      %d", bind_port);
+    LOG(logfile, "Block Timeout:    %d", soft_block_timeout);
 
     if (rbl_zone) {
-        LOG("RBL:                  ENABLED");
-        LOG("RBL Zone:             %s", rbl_zone);
-        LOG("RBL Nameserver:       %s", rbl_ns);
-        LOG("RBL Negative Timeout: %d", rbl_negcache_timeout);
-        LOG("RBL Max Queries:      %d", rbl_max_queries);
+        LOG(logfile, "RBL:                  ENABLED%s", "");
+        LOG(logfile, "RBL Zone:             %s", rbl_zone);
+        LOG(logfile, "RBL Nameserver:       %s", rbl_ns);
+        LOG(logfile, "RBL Negative Timeout: %d", rbl_negcache_timeout);
+        LOG(logfile, "RBL Max Queries:      %d", rbl_max_queries);
     } else {
-        LOG("RBL:              DISABLED");
+        LOG(logfile, "RBL:              DISABLED%s","");
     }
 
 
@@ -1508,7 +1522,7 @@ segvfunc(int sig)
     names = backtrace_symbols(funcs, c);
 
     for (i = 0; i < c; i++)
-        LOG("%s", names[i]);
+        LOG(logfile, "%s", names[i]);
 
     free(names);
 
@@ -1525,10 +1539,10 @@ bgp_init(void)
         return;
 
     if ((bgp_sock = thrash_bgp_connect(bgp_sockname)) < 0) {
-        LOG("ERROR: bgpd sock: %s", strerror(errno));
+        LOG(logfile, "ERROR: bgpd sock: %s", strerror(errno));
         exit(1);
     }
-    LOG("sock %d", bgp_sock);
+    LOG(logfile, "sock %d", bgp_sock);
 
 }
 #endif
@@ -1541,12 +1555,12 @@ thrashd_init(void)
     randdata = g_rand_new();
 
     if (webserver_init() == -1) {
-        LOG("ERROR: Could not bind webserver port: %s", strerror(errno));
+        LOG(logfile, "ERROR: Could not bind webserver port: %s", strerror(errno));
         exit(1);
     }
 
     if (server_init() == -1) {
-        LOG("ERROR: Could not bind to port: %s", strerror(errno));
+        LOG(logfile, "ERROR: Could not bind to port: %s", strerror(errno));
         exit(1);
     }
 
@@ -1567,12 +1581,12 @@ drop_perms(void)
         grp = getgrnam(drop_group);
 
         if (!grp) {
-            LOG("ERROR: group %s not found.", drop_group);
+            LOG(logfile, "ERROR: group %s not found.", drop_group);
             exit(1);
         }
 
         if (setgid(grp->gr_gid) != 0) {
-            LOG("ERROR: setgid failed %s", strerror(errno));
+            LOG(logfile, "ERROR: setgid failed %s", strerror(errno));
             exit(1);
         }
 
@@ -1581,11 +1595,11 @@ drop_perms(void)
     if (drop_user) {
         usr = getpwnam(drop_user);
         if (!usr) {
-            LOG("ERROR: User %s not found.", drop_user);
+            LOG(logfile, "ERROR: User %s not found.", drop_user);
             exit(1);
         }
         if (seteuid(usr->pw_uid) != 0) {
-            LOG("ERROR: setuid failed %s", strerror(errno));
+            LOG(logfile, "ERROR: setuid failed %s", strerror(errno));
             exit(1);
         }
     }

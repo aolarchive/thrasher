@@ -66,7 +66,7 @@ def configure():
 
     if enable_dbg:
         print '>>> Enabling debugging support'
-        env.Append(CFLAGS="-DDEBUG")
+        env.Append(CFLAGS="-DDEBUG -ggdb")
 
     if enable_static:
         if not conf.CheckLib('rt'):

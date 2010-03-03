@@ -6,12 +6,13 @@ extern uint32_t rbl_negcache_timeout;
 extern GTree   *rbl_negative_cache;
 extern char    *rbl_zone;
 extern int      syslog_enabled;
+extern FILE    *logfile;
 
 void
 expire_rbl_negcache(int sock, short which, rbl_negcache_t * rnode)
 {
 #ifdef DEBUG
-    LOG("Expiring negative RBL cache for %u", rnode->addr);
+    LOG(logfile, "Expiring negative RBL cache for %u", rnode->addr);
 #endif
 
     if (!rnode)
@@ -31,7 +32,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
     client_conn_t   cconn;
     struct in_addr *in_addrs;
 #ifdef DEBUG
-    LOG("Got an answer for address %u", arg ? *arg : 0);
+    LOG(logfile, "Got an answer for address %u", arg ? *arg : 0);
 #endif
 
     if (!arg)
@@ -74,7 +75,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
      * insert the entry into our holddown list 
      */
 #ifdef DEBUG
-    LOG("RBL Server thinks %u is bad! BADBOY!", htonl(addr));
+    LOG(logfile, "RBL Server thinks %u is bad! BADBOY!", htonl(addr));
 #endif
     qsnode.saddr = htonl(addr);
 
@@ -84,8 +85,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
     } else
         block_addr(NULL, qsnode.saddr);
 
-    LOG("holding down address %s triggered by RBL",
-        inet_ntoa(*(struct in_addr *) &qsnode.saddr));
+    LOG(logfile, "holding down address %s triggered by RBL", inet_ntoa(*(struct in_addr *) &qsnode.saddr));
 
 }
 
@@ -101,14 +101,14 @@ make_rbl_query(uint32_t addr)
 
     if (g_tree_lookup(rbl_negative_cache, &addr)) {
 #if DEBUG
-        LOG("addr %u already in negative cache, not querying rbl", addr);
+        LOG(logfile, "addr %u already in negative cache, not querying rbl", addr);
 #endif
         return;
     }
 
     if ((rbl_max_queries) && rbl_queries >= rbl_max_queries) {
 #if DEBUG
-        LOG("Cannot send query, RBL queue filled to the brim! (%u)", addr);
+        LOG(logfile, "Cannot send query, RBL queue filled to the brim! (%u)", addr);
 #endif
         return;
     }
@@ -121,18 +121,18 @@ make_rbl_query(uint32_t addr)
     name_sz = strlen(addr_str) + strlen(rbl_zone) + 4;
 
     if (!(query = malloc(name_sz))) {
-        LOG("Cannot allocate memory: %s", strerror(errno));
+        LOG(logfile, "Cannot allocate memory: %s", strerror(errno));
         exit(1);
     }
 
     snprintf(query, name_sz - 1, "%s.%s", addr_str, rbl_zone);
 
 #if DEBUG
-    LOG("Making RBL Request for %s", query);
+    LOG(logfile, "Making RBL Request for %s", query);
 #endif
 
     if (!(addrarg = malloc(sizeof(uint32_t)))) {
-        LOG("Cannot allocate memory: %s", strerror(errno));
+        LOG(logfile, "Cannot allocate memory: %s", strerror(errno));
         exit(1);
     }
 
