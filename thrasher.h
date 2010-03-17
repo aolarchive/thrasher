@@ -117,8 +117,9 @@ typedef struct client_conn {
     iov_t           data;
     query_t         query;
     uint8_t         type;
-		uint32_t        id;
+    uint32_t        id;
     struct event    event;
+    struct event    timeout;
 } client_conn_t;
 
 typedef struct svrconn_t {

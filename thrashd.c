@@ -35,6 +35,7 @@ int             rbl_queries;
 uint32_t        rbl_negcache_timeout;
 uint64_t        total_blocked_connections;
 uint64_t        total_queries;
+uint32_t        connection_timeout;
 GSList         *current_connections;
 GTree          *current_blocks;
 GHashTable     *uri_table;
@@ -77,6 +78,8 @@ reset_query(query_t * query)
 void
 free_client_conn(client_conn_t * conn)
 {
+    LOG(logfile, "%p", conn);
+
     if (!conn)
         return;
 
@@ -84,12 +87,16 @@ free_client_conn(client_conn_t * conn)
         inet_ntoa(*(struct in_addr *) &conn->conn_addr),
         ntohs(conn->conn_port));
 
+    evtimer_del(&conn->timeout);
+    event_del(&conn->event);
+
     reset_iov(&conn->data);
     reset_query(&conn->query);
 
     current_connections =
         g_slist_remove(current_connections, (gconstpointer) conn);
 
+    close(conn->sock);
     free(conn);
 }
 
@@ -109,6 +116,7 @@ uint32_cmp(const void *a, const void *b)
 void
 globals_init(void)
 {
+    connection_timeout = 0;
     uri_check = 1;
     site_check = 1;
     addr_check = 1;
@@ -152,6 +160,31 @@ int
 set_nb(int sock)
 {
     return fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, 0) | O_NONBLOCK);
+}
+
+void
+timeout_client(int sock, short which, client_conn_t *conn)
+{
+    LOG(logfile, "Connection idle for %d seconds, disconnecting client", 
+	    connection_timeout);
+    free_client_conn(conn);
+}
+
+void 
+reset_connection_timeout(client_conn_t *conn, uint32_t timeout)
+{
+    struct timeval tv;
+
+    if (!timeout)
+	return;
+        
+    tv.tv_sec  = timeout;
+    tv.tv_usec = 0;
+        
+    LOG(logfile, "%p", conn);
+    evtimer_del(&conn->timeout);
+    evtimer_set(&conn->timeout, (void *)timeout_client, conn);
+    evtimer_add(&conn->timeout, &tv);
 }
 
 void
@@ -474,6 +507,12 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
 }
 
 int
+is_whitelisted(client_conn_t * conn)
+{
+    return 0;
+} 
+
+int
 do_thresholding(client_conn_t * conn)
 {
     uint32_t        hkeylen,
@@ -491,8 +530,15 @@ do_thresholding(client_conn_t * conn)
     ukey = NULL;
     hkey = NULL;
 
+    /* 
+     * check to see if this address is whitelisted 
+     */
+
+    if (is_whitelisted(conn))
+	return 0;
+
     /*
-     * first check if we already have a block somewhere 
+     * check if we already have a block somewhere 
      */
     if ((bnode = g_tree_lookup(current_blocks, &conn->query.saddr))) {
         /*
@@ -665,6 +711,8 @@ client_process_data(int sock, short which, client_conn_t * conn)
     int             ioret;
     int             blocked;
 
+    reset_connection_timeout(conn, connection_timeout);
+
     if (!conn->data.buf)
         /*
          * if the connection has an ID, then set it to 5 bytes of reading, 
@@ -694,7 +742,6 @@ client_process_data(int sock, short which, client_conn_t * conn)
 
     if (ioret < 0) {
         free_client_conn(conn);
-        close(sock);
         return;
     }
 
@@ -724,6 +771,7 @@ client_read_payload(int sock, short which, client_conn_t * conn)
 #if DEBUG
     LOG(logfile, "%d %d", conn->query.uri_len, conn->query.host_len);
 #endif
+    reset_connection_timeout(conn, connection_timeout);
 
     if (!conn->data.buf)
         initialize_iov(&conn->data,
@@ -733,7 +781,6 @@ client_read_payload(int sock, short which, client_conn_t * conn)
 
     if (ioret < 0) {
         free_client_conn(conn);
-        close(sock);
         return;
     }
 
@@ -785,6 +832,8 @@ client_read_v3_header(int sock, short which, client_conn_t * conn)
      */
     int             ioret;
 
+    reset_connection_timeout(conn, connection_timeout);
+
     if (!conn->data.buf)
         initialize_iov(&conn->data, sizeof(uint32_t));
 
@@ -792,7 +841,6 @@ client_read_v3_header(int sock, short which, client_conn_t * conn)
 
     if (ioret < 0) {
         free_client_conn(conn);
-        close(sock);
         return;
     }
 
@@ -824,6 +872,8 @@ client_read_v2_header(int sock, short which, client_conn_t * conn)
     int             ioret;
     uint32_t        saddr;
 
+    reset_connection_timeout(conn, connection_timeout);
+
     if (!conn->data.buf)
         initialize_iov(&conn->data, 4);
 
@@ -831,7 +881,6 @@ client_read_v2_header(int sock, short which, client_conn_t * conn)
 
     if (ioret < 0) {
         free_client_conn(conn);
-        close(sock);
         return;
     }
 
@@ -863,6 +912,8 @@ client_read_v1_header(int sock, short which, client_conn_t * conn)
     uint16_t        urilen;
     uint16_t        hostlen;
 
+    reset_connection_timeout(conn, connection_timeout);
+
     if (!conn->data.buf)
         initialize_iov(&conn->data, 8);
 
@@ -870,7 +921,6 @@ client_read_v1_header(int sock, short which, client_conn_t * conn)
 
     if (ioret < 0) {
         free_client_conn(conn);
-        close(sock);
         return;
     }
 
@@ -896,7 +946,6 @@ client_read_v1_header(int sock, short which, client_conn_t * conn)
     if (urilen > MAX_URI_SIZE || hostlen > MAX_HOST_SIZE ||
         urilen <= 0 || hostlen <= 0) {
         free_client_conn(conn);
-        close(sock);
         return;
     }
 
@@ -918,6 +967,8 @@ client_read_injection(int sock, short which, client_conn_t * conn)
     uint32_t        saddr;
     int             ioret;
 
+    reset_connection_timeout(conn, connection_timeout);
+
     if (!conn->data.buf)
         initialize_iov(&conn->data, sizeof(uint32_t));
 
@@ -925,7 +976,6 @@ client_read_injection(int sock, short which, client_conn_t * conn)
 
     if (ioret < 0) {
         free_client_conn(conn);
-        close(sock);
         return;
     }
 
@@ -1008,6 +1058,8 @@ client_read_type(int sock, short which, client_conn_t * conn)
     int             ioret;
     uint8_t         type;
 
+    reset_connection_timeout(conn, connection_timeout);
+
     if (!conn->data.buf)
         initialize_iov(&conn->data, 1);
 
@@ -1015,7 +1067,6 @@ client_read_type(int sock, short which, client_conn_t * conn)
 
     if (ioret < 0) {
         free_client_conn(conn);
-        close(sock);
         return;
     }
 
@@ -1024,7 +1075,6 @@ client_read_type(int sock, short which, client_conn_t * conn)
          * what? can't get 1 byte? lame 
          */
         free_client_conn(conn);
-        close(sock);
         return;
     }
 
@@ -1067,7 +1117,6 @@ client_read_type(int sock, short which, client_conn_t * conn)
         break;
     default:
         free_client_conn(conn);
-        close(sock);
         return;
     }
 
@@ -1115,6 +1164,8 @@ server_driver(int sock, short which, void *args)
     event_set(&new_conn->event, csock, EV_READ,
               (void *) client_read_type, new_conn);
     event_add(&new_conn->event, 0);
+
+    reset_connection_timeout(new_conn, connection_timeout); 
 
     return;
 }
@@ -1182,6 +1233,7 @@ load_config(const char *file)
         void           *var;
     } c_f_in[] = {
         {
+        "thrashd", "conn-timeout", _c_f_t_int, &connection_timeout}, {
         "thrashd", "name", _c_f_t_str, &process_name}, {
         "thrashd", "uri-check", _c_f_t_int, &uri_check}, {
         "thrashd", "host-check", _c_f_t_int, &site_check}, {
