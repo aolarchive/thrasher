@@ -85,7 +85,8 @@ get_rbl_answer(int result, char type, int count, int ttl,
     } else
         block_addr(NULL, qsnode.saddr);
 
-    LOG(logfile, "holding down address %s triggered by RBL", inet_ntoa(*(struct in_addr *) &qsnode.saddr));
+    LOG(logfile, "holding down address %s triggered by RBL",
+        inet_ntoa(*(struct in_addr *) &qsnode.saddr));
 
 }
 
@@ -101,14 +102,16 @@ make_rbl_query(uint32_t addr)
 
     if (g_tree_lookup(rbl_negative_cache, &addr)) {
 #if DEBUG
-        LOG(logfile, "addr %u already in negative cache, not querying rbl", addr);
+        LOG(logfile, "addr %u already in negative cache, not querying rbl",
+            addr);
 #endif
         return;
     }
 
     if ((rbl_max_queries) && rbl_queries >= rbl_max_queries) {
 #if DEBUG
-        LOG(logfile, "Cannot send query, RBL queue filled to the brim! (%u)", addr);
+        LOG(logfile,
+            "Cannot send query, RBL queue filled to the brim! (%u)", addr);
 #endif
         return;
     }

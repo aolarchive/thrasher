@@ -31,7 +31,7 @@ thrash_bgp_connect(const char *sockname)
 
 static struct imsgbuf *
 thrash_bgp_mk_inject_pkt(int sock, const uint32_t iaddr,
-                 const bgp_community_t * community, const int type)
+                         const bgp_community_t * community, const int type)
 {
     struct network_config net;
     struct bgpd_addr addr;
@@ -83,7 +83,8 @@ thrash_bgp_inject(const uint32_t addr,
 {
     struct imsgbuf *buf;
 
-    buf = thrash_bgp_mk_inject_pkt(sock, addr, community, IMSG_NETWORK_ADD);
+    buf =
+        thrash_bgp_mk_inject_pkt(sock, addr, community, IMSG_NETWORK_ADD);
 
     if (msgbuf_write(&buf->w) < 0)
         return -1;

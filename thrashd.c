@@ -78,8 +78,6 @@ reset_query(query_t * query)
 void
 free_client_conn(client_conn_t * conn)
 {
-    LOG(logfile, "%p", conn);
-
     if (!conn)
         return;
 
@@ -163,27 +161,31 @@ set_nb(int sock)
 }
 
 void
-timeout_client(int sock, short which, client_conn_t *conn)
+timeout_client(int sock, short which, client_conn_t * conn)
 {
-    LOG(logfile, "Connection idle for %d seconds, disconnecting client", 
-	    connection_timeout);
+    LOG(logfile, "Connection idle for %d seconds, disconnecting client",
+        connection_timeout);
     free_client_conn(conn);
 }
 
-void 
-reset_connection_timeout(client_conn_t *conn, uint32_t timeout)
+void
+reset_connection_timeout(client_conn_t * conn, uint32_t timeout)
 {
-    struct timeval tv;
+    struct timeval  tv;
 
     if (!timeout)
-	return;
-        
-    tv.tv_sec  = timeout;
+        return;
+
+    tv.tv_sec = timeout;
     tv.tv_usec = 0;
-        
+
+	
+#ifdef DEBUG
     LOG(logfile, "%p", conn);
+#endif
+
     evtimer_del(&conn->timeout);
-    evtimer_set(&conn->timeout, (void *)timeout_client, conn);
+    evtimer_set(&conn->timeout, (void *) timeout_client, conn);
     evtimer_add(&conn->timeout, &tv);
 }
 
@@ -297,7 +299,8 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
         evtimer_add(&bnode->recent_block_timeout, &tv);
 
 #if DEBUG
-        LOG(logfile, "Placing %s into recently blocked list with a ratio of %d:%d",
+        LOG(logfile,
+            "Placing %s into recently blocked list with a ratio of %d:%d",
             inet_ntoa(*(struct in_addr *) &bnode->saddr),
             bnode->ratio.num_connections, bnode->ratio.timelimit);
 #endif
@@ -466,8 +469,8 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         evtimer_add(&stats->timeout, &tv);
     }
 #ifdef DEBUG
-    LOG(logfile, "Our stats node is %p (key: %s, table:%p saddr:%u)", stats,
-        stats->key, stats->table, stats->saddr);
+    LOG(logfile, "Our stats node is %p (key: %s, table:%p saddr:%u)",
+        stats, stats->key, stats->table, stats->saddr);
 #endif
 
     /*
@@ -510,7 +513,7 @@ int
 is_whitelisted(client_conn_t * conn)
 {
     return 0;
-} 
+}
 
 int
 do_thresholding(client_conn_t * conn)
@@ -530,12 +533,12 @@ do_thresholding(client_conn_t * conn)
     ukey = NULL;
     hkey = NULL;
 
-    /* 
+    /*
      * check to see if this address is whitelisted 
      */
 
     if (is_whitelisted(conn))
-	return 0;
+        return 0;
 
     /*
      * check if we already have a block somewhere 
@@ -560,9 +563,9 @@ do_thresholding(client_conn_t * conn)
         return 1;
     }
 
-    if (recently_blocked && (bnode =
-                             g_tree_lookup(recently_blocked,
-                                           &conn->query.saddr))) {
+    if (((recently_blocked) && (bnode =
+                                g_tree_lookup(recently_blocked,
+                                              &conn->query.saddr)))) {
         /*
          * this address has been recently expired from the current_blocks
          * and placed into the recently_blocked list. 
@@ -813,7 +816,8 @@ client_read_payload(int sock, short which, client_conn_t * conn)
     reset_iov(&conn->data);
 
 #ifdef DEBUG
-    LOG(logfile, "host: '%s' uri: '%s'", conn->query.host, conn->query.uri);
+    LOG(logfile, "host: '%s' uri: '%s'", conn->query.host,
+        conn->query.uri);
 #endif
 
     event_set(&conn->event, sock, EV_WRITE,
@@ -1165,7 +1169,7 @@ server_driver(int sock, short which, void *args)
               (void *) client_read_type, new_conn);
     event_add(&new_conn->event, 0);
 
-    reset_connection_timeout(new_conn, connection_timeout); 
+    reset_connection_timeout(new_conn, connection_timeout);
 
     return;
 }
@@ -1205,7 +1209,8 @@ server_init(void)
     return 0;
 }
 
-uint32_t get_random_integer(void)
+uint32_t
+get_random_integer(void)
 {
     return 4; // chosen by fair dice roll.
               // guaranteed to be random.
@@ -1223,7 +1228,7 @@ load_config(const char *file)
         _c_f_t_int,
         _c_f_t_trie,
         _c_f_t_ratio,
-	_c_f_t_file
+        _c_f_t_file
     } _c_f_t;
 
     struct _c_f_in {
@@ -1232,36 +1237,35 @@ load_config(const char *file)
         _c_f_t          type;
         void           *var;
     } c_f_in[] = {
-        {
-        "thrashd", "conn-timeout", _c_f_t_int, &connection_timeout}, {
-        "thrashd", "name", _c_f_t_str, &process_name}, {
-        "thrashd", "uri-check", _c_f_t_int, &uri_check}, {
-        "thrashd", "host-check", _c_f_t_int, &site_check}, {
-        "thrashd", "addr-check", _c_f_t_int, &addr_check}, {
-        "thrashd", "http-listen-port", _c_f_t_int, &server_port}, {
-        "thrashd", "listen-port", _c_f_t_int, &bind_port}, {
-        "thrashd", "listen-addr", _c_f_t_str, &bind_addr}, {
-        "thrashd", "block-timeout", _c_f_t_int, &soft_block_timeout}, {
-        "thrashd", "uri-ratio", _c_f_t_ratio, &uri_ratio}, {
-        "thrashd", "host-ratio", _c_f_t_ratio, &site_ratio}, {
-        "thrashd", "addr-ratio", _c_f_t_ratio, &addr_ratio}, {
-        "thrashd", "daemonize", _c_f_t_int, &rundaemon}, {
-        "thrashd", "syslog", _c_f_t_int, &syslog_enabled}, {
-        "thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, {
-        "thrashd", "rbl-negative-cache-timeout", _c_f_t_int, &rbl_negcache_timeout}, {
-        "thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
-        "thrashd", "rbl-max-query", _c_f_t_int, &rbl_max_queries}, {
-        "thrashd", "rand-ratio", _c_f_t_trie, &recently_blocked}, {
-        "thrashd", "min-rand-ratio", _c_f_t_ratio, &minimum_random_ratio}, {
-        "thrashd", "max-rand-ratio", _c_f_t_ratio, &maximum_random_ratio}, {
-        "thrashd", "recently-blocked-timeout", _c_f_t_int, &recently_blocked_timeout}, {
-        "thrashd", "rbl-negative-cache-timeout", _c_f_t_int, &rbl_negcache_timeout}, {
-        "thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, {
-        "thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, {
-        "thrashd", "rbl-max-queries", _c_f_t_int, &rbl_max_queries}, {
-        "thrashd", "user", _c_f_t_str, &drop_user}, {
-        "thrashd", "group", _c_f_t_str, &drop_group}, {
-	"thrashd", "logfile", _c_f_t_file, &logfile},
+        {"thrashd", "conn-timeout", _c_f_t_int, &connection_timeout}, 
+	{"thrashd", "name", _c_f_t_str, &process_name}, 
+	{"thrashd", "uri-check", _c_f_t_int, &uri_check}, 
+	{"thrashd", "host-check", _c_f_t_int, &site_check}, 
+	{"thrashd", "addr-check", _c_f_t_int, &addr_check}, 
+	{"thrashd", "http-listen-port", _c_f_t_int, &server_port}, 
+	{"thrashd", "listen-port", _c_f_t_int, &bind_port}, 
+	{"thrashd", "listen-addr", _c_f_t_str, &bind_addr}, 
+	{"thrashd", "block-timeout", _c_f_t_int, &soft_block_timeout}, 
+	{"thrashd", "uri-ratio", _c_f_t_ratio, &uri_ratio}, 
+	{"thrashd", "host-ratio", _c_f_t_ratio, &site_ratio}, 
+	{"thrashd", "addr-ratio", _c_f_t_ratio, &addr_ratio}, 
+	{"thrashd", "daemonize", _c_f_t_int, &rundaemon}, 
+	{"thrashd", "syslog", _c_f_t_int, &syslog_enabled}, 
+	{"thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, 
+	{"thrashd", "rbl-negative-cache-timeout", _c_f_t_int, &rbl_negcache_timeout}, 
+	{"thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, 
+	{"thrashd", "rbl-max-query", _c_f_t_int, &rbl_max_queries}, 
+	{"thrashd", "rand-ratio", _c_f_t_trie, &recently_blocked}, 
+	{"thrashd", "min-rand-ratio", _c_f_t_ratio, &minimum_random_ratio},
+        {"thrashd", "max-rand-ratio", _c_f_t_ratio, &maximum_random_ratio},
+        {"thrashd", "recently-blocked-timeout", _c_f_t_int, &recently_blocked_timeout}, 
+	{"thrashd", "rbl-negative-cache-timeout", _c_f_t_int, &rbl_negcache_timeout}, 
+	{"thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, 
+	{"thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, 
+	{"thrashd", "rbl-max-queries", _c_f_t_int, &rbl_max_queries}, 
+	{"thrashd", "user", _c_f_t_str, &drop_user}, 
+	{"thrashd", "group", _c_f_t_str, &drop_group}, 
+	{"thrashd", "logfile", _c_f_t_file, &logfile},
 #ifdef WITH_BGP
         {"thrashd", "bgp-sock", _c_f_t_str, &bgp_sockname},
 #endif
@@ -1280,7 +1284,7 @@ load_config(const char *file)
     for (i = 0; c_f_in[i].parent != NULL; i++) {
         char          **svar;
         char           *str;
-	FILE          **fvar;
+        FILE          **fvar;
         int            *ivar;
         GTree         **tvar;
         block_ratio_t  *ratio;
@@ -1300,7 +1304,11 @@ load_config(const char *file)
             break;
         case _c_f_t_trie:
             tvar = (GTree **) c_f_in[i].var;
-            *tvar = g_tree_new((GCompareFunc) uint32_cmp);
+            ivar = (int *) c_f_in[i].var;
+
+            if (*ivar == 1)
+                *tvar = g_tree_new((GCompareFunc) uint32_cmp);
+
             break;
         case _c_f_t_int:
             ivar = (int *) c_f_in[i].var;
@@ -1318,21 +1326,18 @@ load_config(const char *file)
             ratio->timelimit = atoll(splitter[1]);
             g_strfreev(splitter);
             break;
-	case _c_f_t_file:
-	    printf("hi\n");
-	    fvar = (FILE **)c_f_in[i].var;
-	    str  = g_key_file_get_string(config_file,
-		    c_f_in[i].parent,
-		    c_f_in[i].key, NULL);
+        case _c_f_t_file:
+            fvar = (FILE **) c_f_in[i].var;
+            str = g_key_file_get_string(config_file,
+                                        c_f_in[i].parent,
+                                        c_f_in[i].key, NULL);
 
-	    if (!(*fvar = fopen(str, "a+")))
-	    {
-		fprintf(stderr, "Could not open logfile %s\n",
-			strerror(errno));
-		exit(1);
-	    }
-	    printf("jfkdjsafldaksfjadksfklasjfk;djsf;afjkldjsafj\n");
-	    break;
+            if (!(*fvar = fopen(str, "a+"))) {
+                fprintf(stderr, "Could not open logfile %s\n",
+                        strerror(errno));
+                exit(1);
+            }
+            break;
         }
     }
 
@@ -1520,10 +1525,10 @@ daemonize(const char *path)
 void
 log_startup(void)
 {
-    LOG(logfile,"Name:             %s", process_name);
+    LOG(logfile, "Name:             %s", process_name);
 
     if (uri_check) {
-        LOG(logfile,"URI Block Ratio:  %u connections within %u seconds",
+        LOG(logfile, "URI Block Ratio:  %u connections within %u seconds",
             uri_ratio.num_connections, uri_ratio.timelimit);
     } else {
         LOG(logfile, "URI Block:        DISABLED%s", "");
@@ -1555,7 +1560,7 @@ log_startup(void)
         LOG(logfile, "RBL Negative Timeout: %d", rbl_negcache_timeout);
         LOG(logfile, "RBL Max Queries:      %d", rbl_max_queries);
     } else {
-        LOG(logfile, "RBL:              DISABLED%s","");
+        LOG(logfile, "RBL:              DISABLED%s", "");
     }
 
 
@@ -1602,12 +1607,15 @@ bgp_init(void)
 void
 thrashd_init(void)
 {
+    struct sigaction sa;
+
     rbl_init();
     qps_init();
     randdata = g_rand_new();
 
     if (webserver_init() == -1) {
-        LOG(logfile, "ERROR: Could not bind webserver port: %s", strerror(errno));
+        LOG(logfile, "ERROR: Could not bind webserver port: %s",
+            strerror(errno));
         exit(1);
     }
 
@@ -1621,6 +1629,20 @@ thrashd_init(void)
 #ifdef ARCH_LINUX
     signal(SIGSEGV, segvfunc);
 #endif
+
+    /*
+     * ignore sigpipe, it's annoying HEYOOOO 
+     */
+    sa.sa_handler = SIG_IGN;
+    sa.sa_flags = 0;
+
+
+    if (sigemptyset(&sa.sa_mask) == -1 || sigaction(SIGPIPE, &sa, 0) == -1) {
+        LOG(logfile,
+            "ERROR: failed to ignore SIGPIPE: %s", strerror(errno));
+        exit(1);
+    }
+
 
 }
 
