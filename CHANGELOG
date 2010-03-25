@@ -1,0 +1,137 @@
+1.0r20 changes
+
+    * /config additions, syslog additions and fixes
+    
+    * httpd_put_config() has been modified to include all
+      the configuration options that are relevant.
+
+    * added some checks to determine of the minimum and maximum
+      ratios were configured when sliding windows are enabled.
+
+    * added configuration option "syslog-facility" to allow
+      the user to define where syslog goes.
+
+    * fixed bug with load_config() for _c_f_t_trie types.
+
+    * cleaned up the sample config file for a better "default"
+
+    * fixed issue where if random ratio configuration option was set to
+      0, it will still turn that feature on.
+
+    * ignore SIGPIPE completely
+
+    * conn-timeout configuration option tells thrashd that
+      if a client connection is idle for this many seconds
+      to disconnect them.
+
+    * Added new configuration option for non-syslog logfile
+
+
+
+1.0r19 changes
+    - Thrashd no longer accepts the long complex arguments, now a simple
+      configuration file is used. (see thrashd.conf)
+
+    - Created a centralized thrasher.h
+
+    - Created a thrasher v2 packet type, this allows
+      for a smaller query packet to be sent if the caller
+      does not have the need to send any type of meta-data.
+    
+      an example packet is [uint8_t 3][uint32_t addr]
+    
+        a pretty big bw savings.
+    
+      This is best used in conjunction with webfw2 uri/host
+      filtering.
+
+    - Created a thrasher v3 packet type, this is a simple
+      addition that allows for a unique 32bit identifier to be used
+      within the question and answer. 
+
+    - Moved the iov functionality into its own files.
+
+    - cleaned up some of the formatting on the reporting
+      sent to the http port
+
+    - Created an event-based thrasher API libthrasher (see master_thrasher.c for
+      usage)
+
+    - Magical sliding window mechanism.
+      At the current time whenever an addresses is deemed "malicious" thrashd
+      will place this into a "currently blocked" list along with a timeout.
+      Every subsequent hit from that address will reset the timeout.
+    
+      If the attacker stops hitting and the timeout is finally reached it is
+      removed from the "currently blocked" list and continues on.
+    
+      The inherent problem is that some attackers figure out that they are
+      being rate-limited and attempt to find a nice window where they will
+      not be blocked.
+    
+      In order to thwart such things I have implemented a sliding window mechanism.
+      This will dynamically scale connection limits down and time windows up.
+      Instead of simply removing from "currently blocked" list and dropping
+      the address all together, we move the address into a "recently blocked" list
+      after the timeout has expired.
+    
+      This "recently blocked" list will dynamically generate a new ratio for that
+      host only using two new configuration variables: min-rand-ratio and
+      max-rand-ratio.
+    
+      If an address was blocked, timed out, and placed into the recently blocked
+      list and it has never been in the "recently blocked" list thrashd will
+      generate the new ratio using this method:
+       connections = random_range( min-rand-ratio.connections,
+                                   max-rand-ratio.connections )
+       timewindow  = random_range( min-rand-ratio.timewindow,
+                                   max-rand-ratio.timewindow )
+
+      If an address was blocked, timed out, and placed into the recently blocked
+      list and it has been in this previously the following will happen to the
+      ratios:
+        connections = random_range ( min-rand-ratio.connections,
+                                     last_connection_limit )
+        timewindow  = random_range ( last_time_window,
+                                     max-rand-ratio.timewindow)
+    
+      Thus the connection limit goes DOWN while the time window goes UP. If
+      the min-ratio or max-ratio's are met, the whole thing starts over.
+
+    - If thrasher was compiled on linux it will display a proper backtrace if the process
+      does infact segfault.
+
+    - Fixed SIGPIPE issues that could occur on a recv() (this should fix the randomly exiting processes)
+
+    - manual thrasher injections will no longer trigger a recently_blocked addition. 
+
+    - the initial examination of recently_blocked node should have had the event handler 
+      expire_recent_bnode instead of expire_bnode. This was fixed.
+
+    - FIXED: recently blocked evtimer would be invalid on an injection and cause a segfault on expire_bnode()
+
+    - The log format will now display the number of hits an address recieved before the expirey was met.
+      "expired address 5.5.5.5 after 2 hits"
+
+    - thrashd will now allow persistent connections for INJECT/REMOVE
+  
+    - thrashd was ported to OpenBSD
+
+    - BGP Support
+           * several new functions have been implemented in order to support bgp stuff.
+           * bgp_init()
+           * thrash_bgp_inject()
+           * thrash_bgp_freepkt()
+           * thrash_bgp_mkpkt()
+           * thrash_bgp_connect()
+
+    - all functions calling create_stats_node() will now check for an exact value
+      of 1, instead of !create_stats_node() which could match signed returns.
+    - new function create_stats_node() which will return a qstats_t node.
+
+    - moved http functionality into httpd.c and httpd.h
+
+    - moved rbl functionality into rbl.c and rbl.h
+
+    - removed some static definitions for configuration
+      variables.
