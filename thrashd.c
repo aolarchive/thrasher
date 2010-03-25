@@ -3,6 +3,7 @@
 
 #include "thrasher.h"
 #include "version.h"
+#include "httpd.h"
 
 #define MAX_URI_SIZE  1500
 #define MAX_HOST_SIZE 1500
@@ -28,8 +29,9 @@ uint32_t        qps_last;
 struct event    qps_event;
 static int      rundaemon;
 int             syslog_enabled;
+char           *syslog_facility;
 char           *rbl_zone;
-static char    *rbl_ns;
+char           *rbl_ns;
 int             rbl_max_queries;
 int             rbl_queries;
 uint32_t        rbl_negcache_timeout;
@@ -49,9 +51,9 @@ GTree          *recently_blocked;
 GRand          *randdata;
 FILE           *logfile;
 
-static uint32_t recently_blocked_timeout;
-static block_ratio_t minimum_random_ratio;
-static block_ratio_t maximum_random_ratio;
+uint32_t recently_blocked_timeout;
+block_ratio_t minimum_random_ratio;
+block_ratio_t maximum_random_ratio;
 
 char           *drop_user;
 char           *drop_group;
@@ -81,9 +83,11 @@ free_client_conn(client_conn_t * conn)
     if (!conn)
         return;
 
+#ifdef DEBUG
     LOG(logfile, "Lost connection from %s:%d",
         inet_ntoa(*(struct in_addr *) &conn->conn_addr),
         ntohs(conn->conn_port));
+#endif
 
     evtimer_del(&conn->timeout);
     event_del(&conn->event);
@@ -126,6 +130,10 @@ globals_init(void)
     uri_ratio.num_connections = 10;
     site_ratio.timelimit = 60;
     uri_ratio.timelimit = 60;
+    minimum_random_ratio.num_connections = 0;
+    minimum_random_ratio.timelimit = 0;
+    maximum_random_ratio.timelimit = 0;
+    maximum_random_ratio.num_connections = 0;
     addr_ratio.num_connections = 100;
     addr_ratio.timelimit = 10;
     qps = 0;
@@ -148,10 +156,11 @@ globals_init(void)
     config_file = NULL;
     randdata = NULL;
     recently_blocked = NULL;
-    recently_blocked_timeout = 120;
+    recently_blocked_timeout = 0;
     drop_user = NULL;
     drop_group = NULL;
     logfile = stdout;
+    syslog_facility = "local6";
 }
 
 int
@@ -1158,9 +1167,11 @@ server_driver(int sock, short which, void *args)
     new_conn->conn_addr = (uint32_t) addr.sin_addr.s_addr;
     new_conn->conn_port = (uint16_t) addr.sin_port;
 
+#ifdef DEBUG
     LOG(logfile, "New connection from %s:%d",
         inet_ntoa(*(struct in_addr *) &new_conn->conn_addr),
         ntohs(new_conn->conn_port));
+#endif
 
     current_connections =
         g_slist_prepend(current_connections, (gpointer) new_conn);
@@ -1251,6 +1262,7 @@ load_config(const char *file)
 	{"thrashd", "addr-ratio", _c_f_t_ratio, &addr_ratio}, 
 	{"thrashd", "daemonize", _c_f_t_int, &rundaemon}, 
 	{"thrashd", "syslog", _c_f_t_int, &syslog_enabled}, 
+	{"thrashd", "syslog-facility", _c_f_t_str, &syslog_facility},
 	{"thrashd", "rbl-zone", _c_f_t_str, &rbl_zone}, 
 	{"thrashd", "rbl-negative-cache-timeout", _c_f_t_int, &rbl_negcache_timeout}, 
 	{"thrashd", "rbl-nameserver", _c_f_t_str, &rbl_ns}, 
@@ -1289,6 +1301,7 @@ load_config(const char *file)
         GTree         **tvar;
         block_ratio_t  *ratio;
         gchar         **splitter;
+	gboolean        boolean;
 
         if (!g_key_file_has_key(config_file,
                                 c_f_in[i].parent, c_f_in[i].key, &error))
@@ -1303,10 +1316,14 @@ load_config(const char *file)
                                           c_f_in[i].key, NULL);
             break;
         case _c_f_t_trie:
-            tvar = (GTree **) c_f_in[i].var;
-            ivar = (int *) c_f_in[i].var;
+	    tvar = (GTree **) c_f_in[i].var;
 
-            if (*ivar == 1)
+	    boolean =
+		g_key_file_get_boolean(config_file,
+			c_f_in[i].parent,
+			c_f_in[i].key, NULL);
+
+            if (boolean == TRUE)
                 *tvar = g_tree_new((GCompareFunc) uint32_cmp);
 
             break;
@@ -1340,6 +1357,32 @@ load_config(const char *file)
             break;
         }
     }
+
+    /* if random ratios are turned on, yet we don't have
+       the minimum configured, lets throw up an error. */
+    if (recently_blocked)
+    {
+	if ((!minimum_random_ratio.num_connections && 
+	     !minimum_random_ratio.timelimit) ||
+	    (!maximum_random_ratio.num_connections &&
+	     !minimum_random_ratio.timelimit))
+	{
+	    LOG(logfile, 
+		    "Recently blocked (%p) Enabled without max-rand-ratio or"
+		    " min-rand-ratio configured!", recently_blocked);
+	    exit(1);
+	}
+
+	if (!recently_blocked_timeout)
+	{
+	    LOG(logfile,
+		    "Recently blocked (%p) is enabled without "
+		    "recently-blocked-timeout configured", recently_blocked);
+	    exit(1);
+	}
+    }
+
+
 
     g_key_file_free(config_file);
 }
@@ -1624,7 +1667,7 @@ thrashd_init(void)
         exit(1);
     }
 
-    syslog_init("local6");
+    syslog_init(syslog_facility);
 
 #ifdef ARCH_LINUX
     signal(SIGSEGV, segvfunc);
@@ -1635,7 +1678,6 @@ thrashd_init(void)
      */
     sa.sa_handler = SIG_IGN;
     sa.sa_flags = 0;
-
 
     if (sigemptyset(&sa.sa_mask) == -1 || sigaction(SIGPIPE, &sa, 0) == -1) {
         LOG(logfile,

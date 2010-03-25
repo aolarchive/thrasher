@@ -28,7 +28,6 @@
 
 #include "iov.h"
 #include "rbl.h"
-#include "httpd.h"
 
 #if 0
 #define LOG(f, x, s...) do { \
@@ -84,7 +83,7 @@ typedef struct thrash_client {
     thrash_pkt_type    type;
     iov_t              data;
     uint32_t           addr_lookup;
-		void              *userdata;
+    void              *userdata;
     struct event_base *evbase;
     struct event       event;
     void (*resp_cb) (struct thrash_client *cli, thrash_resp_t *resp);
@@ -144,9 +143,9 @@ typedef struct blocked_node {
     uint32_t        saddr;
     uint32_t        count;
     uint32_t        first_seen_addr;
-		block_ratio_t   ratio;
+    block_ratio_t   ratio;
     struct event    timeout;
-		struct event    recent_block_timeout;
+    struct event    recent_block_timeout;
 } blocked_node_t;
 
 typedef enum {

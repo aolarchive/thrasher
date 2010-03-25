@@ -18,10 +18,19 @@ extern uint64_t total_blocked_connections;
 extern uint64_t total_queries;
 extern int      rbl_queries;
 extern int      rbl_max_queries;
+extern char    *rbl_zone;
+extern int      rbl_negcache_timeout;
+extern char    *rbl_ns;
+extern uint32_t connection_timeout;
+
+extern block_ratio_t minimum_random_ratio;
+extern block_ratio_t maximum_random_ratio;
+extern uint32_t recently_blocked_timeout;
 
 
 extern GTree   *current_blocks;
 extern GSList  *current_connections;
+extern GTree   *recently_blocked;
 
 gboolean
 fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer *buf)
@@ -100,17 +109,29 @@ httpd_put_config(struct evhttp_request *req, void *args)
 
     evbuffer_add_printf(buf, "Thrashd version: %s (%s) [%s]\n", VERSION,
                         VERSION_NAME, process_name);
+
     evbuffer_add_printf(buf, "Running configuration\n\n");
-    evbuffer_add_printf(buf, "  URI Check Enabled:  %s\n",
+    evbuffer_add_printf(buf, "  URI Check Enabled:     %s\n",
                         uri_check ? "yes" : "no");
-    evbuffer_add_printf(buf, "  Host Check Enabled: %s\n",
+    evbuffer_add_printf(buf, "  Host Check Enabled:    %s\n",
                         site_check ? "yes" : "no");
-    evbuffer_add_printf(buf, "  Addr Check Enabled: %s\n",
+    evbuffer_add_printf(buf, "  Addr Check Enabled:    %s\n",
                         addr_check ? "yes" : "no");
-    evbuffer_add_printf(buf, "  Bind addr:          %s\n", bind_addr);
-    evbuffer_add_printf(buf, "  Bind port:          %d\n", bind_port);
-    evbuffer_add_printf(buf, "  Soft block timeout: %d\n\n",
-                        soft_block_timeout);
+    evbuffer_add_printf(buf, "  Sliding Ratio Enabled: %s\n",
+	                recently_blocked ? "yes" : "no");
+    evbuffer_add_printf(buf, "  RBL Enabled:           %s\n",
+	                rbl_zone ? "yes":"no");
+
+    evbuffer_add_printf(buf, "  Bind addr:             %s\n", bind_addr);
+    evbuffer_add_printf(buf, "  Bind port:             %d\n", bind_port);
+    evbuffer_add_printf(buf, "  Client Idle Timeout:   %u\n", connection_timeout);
+    evbuffer_add_printf(buf, "  Soft block timeout:    %d\n\n", soft_block_timeout);
+
+    evbuffer_add_printf(buf, "  RBL Zone:              %s\n", rbl_zone?rbl_zone:"NULL");
+    evbuffer_add_printf(buf, "  RBL Nameserver:        %s\n", rbl_ns?rbl_ns:"NULL");
+    evbuffer_add_printf(buf, "  RBL Max Async Queries: %d\n", rbl_max_queries);
+    evbuffer_add_printf(buf, "  RBL NegCache Timeout:  %d\n\n", rbl_negcache_timeout);
+
     evbuffer_add_printf(buf,
                         "  Host block ratio: %d hits over %d seconds\n",
                         site_ratio.num_connections, site_ratio.timelimit);
@@ -120,6 +141,24 @@ httpd_put_config(struct evhttp_request *req, void *args)
     evbuffer_add_printf(buf,
                         "  ADDR block ratio: %d hits over %d seconds\n\n",
                         addr_ratio.num_connections, addr_ratio.timelimit);
+
+    evbuffer_add_printf(buf,
+	                "  Sliding Ratio MINIMUM: %d hits over %d seconds\n",
+			minimum_random_ratio.num_connections,
+			minimum_random_ratio.timelimit);
+    evbuffer_add_printf(buf,
+	                "  Sliding Ratio MAXIMUM: %d hits over %d seconds\n",
+			maximum_random_ratio.num_connections,
+			maximum_random_ratio.timelimit);
+
+    evbuffer_add_printf(buf,
+	                "  Sliding Ratio Recently Blocked Timeout: %u\n\n",
+			recently_blocked_timeout);
+
+    evbuffer_add_printf(buf,
+	                "%d clients currently connected\n",
+			g_slist_length(current_connections)-1);
+
     evbuffer_add_printf(buf,
                         "%d addresses currently in hold-down (%u qps)\n",
                         g_tree_nnodes(current_blocks), qps_last);
