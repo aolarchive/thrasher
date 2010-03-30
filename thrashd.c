@@ -307,12 +307,10 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
                     (void *) expire_recent_bnode, bnode);
         evtimer_add(&bnode->recent_block_timeout, &tv);
 
-#if DEBUG
         LOG(logfile,
             "Placing %s into recently blocked list with a ratio of %d:%d",
             inet_ntoa(*(struct in_addr *) &bnode->saddr),
             bnode->ratio.num_connections, bnode->ratio.timelimit);
-#endif
         return;
     }
 
