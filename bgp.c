@@ -9,23 +9,24 @@
 int
 thrash_bgp_connect(const char *sockname)
 {
-    int             sock;
+    int                sock;
     struct sockaddr_un sun;
 
-    if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
-        return -1;
+    if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+        return(-1);
+    }
 
     memset(&sun, 0, sizeof(struct sockaddr_un));
 
     sun.sun_family = AF_UNIX;
     strncpy(sun.sun_path, sockname, sizeof(sun.sun_path));
 
-    if (connect(sock, (struct sockaddr *) &sun, sizeof(sun)) < 0) {
+    if (connect(sock, (struct sockaddr *)&sun, sizeof(sun)) < 0) {
         close(sock);
-        return -1;
+        return(-1);
     }
 
-    return sock;
+    return(sock);
 }
 
 
@@ -34,12 +35,13 @@ thrash_bgp_mk_inject_pkt(int sock, const uint32_t iaddr,
                          const bgp_community_t * community, const int type)
 {
     struct network_config net;
-    struct bgpd_addr addr;
-    struct imsgbuf *ibuf;
-    struct filter_set set;
+    struct bgpd_addr      addr;
+    struct imsgbuf       *ibuf;
+    struct filter_set     set;
 
-    if (!(ibuf = malloc(sizeof(struct imsgbuf))))
-        return NULL;
+    if (!(ibuf = malloc(sizeof(struct imsgbuf)))) {
+        return(NULL);
+    }
 
     memset(&addr, 0, sizeof(struct bgpd_addr));
     memset(&net, 0, sizeof(struct network_config));
@@ -61,13 +63,14 @@ thrash_bgp_mk_inject_pkt(int sock, const uint32_t iaddr,
 
     imsg_compose(ibuf, type, 0, 0, -1, &net, sizeof(net));
 
-    if (community)
+    if (community) {
         imsg_compose(ibuf, IMSG_FILTER_SET,
                      0, 0, -1, &set, sizeof(struct filter_set));
+    }
 
     imsg_compose(ibuf, IMSG_NETWORK_DONE, 0, 0, -1, NULL, 0);
 
-    return ibuf;
+    return(ibuf);
 }
 
 void
@@ -86,20 +89,21 @@ thrash_bgp_inject(const uint32_t addr,
     buf =
         thrash_bgp_mk_inject_pkt(sock, addr, community, IMSG_NETWORK_ADD);
 
-    if (msgbuf_write(&buf->w) < 0)
-        return -1;
+    if (msgbuf_write(&buf->w) < 0) {
+        return(-1);
+    }
 
     thrash_bgp_freepkt(buf);
-    return 0;
+    return(0);
 }
 
 #ifdef TEST_BGP
 int
 main(int argc, char **argv)
 {
-    int             sock;
-    uint16_t        asn;
-    uint32_t        addr;
+    int              sock;
+    uint16_t         asn;
+    uint32_t         addr;
     bgp_community_t *community = NULL;
 
     if (argc < 2) {
@@ -107,7 +111,7 @@ main(int argc, char **argv)
         exit(1);
     }
 
-    addr = (uint32_t) inet_addr(argv[1]);
+    addr = (uint32_t)inet_addr(argv[1]);
 
     if (argv[2] && argv[3]) {
         community = malloc(sizeof(bgp_community_t));
@@ -122,9 +126,10 @@ main(int argc, char **argv)
            thrash_bgp_inject(addr, community, sock) ?
            "unsuccessful" : "successful");
 
-    if (community)
+    if (community) {
         free(community);
+    }
 
-    return 0;
+    return(0);
 }
 #endif

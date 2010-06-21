@@ -15,8 +15,8 @@
 #include "thrasher.h"
 
 static thrash_pkt_type pkt_type;
-static char    *thrashd_host;
-static int      thrashd_port;
+static char           *thrashd_host;
+static int             thrashd_port;
 
 void
 globals_init(void)
@@ -26,42 +26,42 @@ globals_init(void)
     thrashd_port = 1972;
 }
 
-static char     help[] =
+static char help[] =
     " -i: INJECT Addr\n"
     " -r: REMOVE Addr\n" " -s <thrashd addr>\n" " -p <thrashd port>\n";
 
 int
 parse_args(int argc, char **argv)
 {
-    int             c;
-    int             jmp = 1;
+    int c;
+    int jmp = 1;
 
     while ((c = getopt(argc, argv, "irs:p:h")) != -1) {
         switch (c) {
-        case 'i':
-            pkt_type = TYPE_INJECT;
-            jmp++;
-            break;
-        case 'r':
-            pkt_type = TYPE_REMOVE;
-            jmp++;
-            break;
-        case 's':
-            thrashd_host = optarg;
-            jmp += 2;
-            break;
-        case 'p':
-            jmp += 2;
-            thrashd_port = atoi(optarg);
-            break;
-        case 'h':
-            printf("Usage %s [opts] <addr1> <addr2> ...\n%s",
-                   argv[0], help);
-            exit(1);
-        }
+            case 'i':
+                pkt_type = TYPE_INJECT;
+                jmp++;
+                break;
+            case 'r':
+                pkt_type = TYPE_REMOVE;
+                jmp++;
+                break;
+            case 's':
+                thrashd_host = optarg;
+                jmp += 2;
+                break;
+            case 'p':
+                jmp += 2;
+                thrashd_port = atoi(optarg);
+                break;
+            case 'h':
+                printf("Usage %s [opts] <addr1> <addr2> ...\n%s",
+                       argv[0], help);
+                exit(1);
+        } /* switch */
     }
 
-    return jmp;
+    return(jmp);
 }
 
 void
@@ -75,10 +75,10 @@ resp_callback(thrash_client_t * cli, thrash_resp_t * resp)
 int
 main(int argc, char **argv)
 {
-    int             ret,
-                    i;
+    int                ret,
+                       i;
     struct event_base *base;
-    thrash_client_t *lc;
+    thrash_client_t   *lc;
 
     globals_init();
     ret = parse_args(argc, argv);
@@ -106,5 +106,5 @@ main(int argc, char **argv)
         event_base_loop(base, 0);
     }
 
-    return 0;
+    return(0);
 }

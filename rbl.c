@@ -15,8 +15,9 @@ expire_rbl_negcache(int sock, short which, rbl_negcache_t * rnode)
     LOG(logfile, "Expiring negative RBL cache for %u", rnode->addr);
 #endif
 
-    if (!rnode)
+    if (!rnode) {
         return;
+    }
 
     evtimer_del(&rnode->timeout);
     g_tree_remove(rbl_negative_cache, &rnode->addr);
@@ -35,8 +36,9 @@ get_rbl_answer(int result, char type, int count, int ttl,
     LOG(logfile, "Got an answer for address %u", arg ? *arg : 0);
 #endif
 
-    if (!arg)
+    if (!arg) {
         return;
+    }
 
     addr = *arg;
     in_addrs = NULL;
@@ -49,13 +51,14 @@ get_rbl_answer(int result, char type, int count, int ttl,
         type != DNS_IPv4_A || ttl < 0) {
         /*
          * we must cache the negative answer so we don't kill our rbl
-         * server 
+         * server
          */
         rbl_negcache_t *rnode;
         struct timeval  tv;
 
-        if (result != DNS_ERR_NOTEXIST)
+        if (result != DNS_ERR_NOTEXIST) {
             return;
+        }
 
         rnode = malloc(sizeof(rbl_negcache_t));
         rnode->addr = addr;
@@ -63,7 +66,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
         tv.tv_sec = rbl_negcache_timeout;
         tv.tv_usec = 0;
 
-        evtimer_set(&rnode->timeout, (void *) expire_rbl_negcache, rnode);
+        evtimer_set(&rnode->timeout, (void *)expire_rbl_negcache, rnode);
         evtimer_add(&rnode->timeout, &tv);
 
         g_tree_insert(rbl_negative_cache, &rnode->addr, rnode);
@@ -72,7 +75,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
     }
 
     /*
-     * insert the entry into our holddown list 
+     * insert the entry into our holddown list
      */
 #ifdef DEBUG
     LOG(logfile, "RBL Server thinks %u is bad! BADBOY!", htonl(addr));
@@ -80,23 +83,24 @@ get_rbl_answer(int result, char type, int count, int ttl,
     qsnode.saddr = htonl(addr);
 
     if (in_addrs) {
-        cconn.conn_addr = (uint32_t) in_addrs[0].s_addr;
+        cconn.conn_addr = (uint32_t)in_addrs[0].s_addr;
         block_addr(&cconn, qsnode.saddr);
-    } else
+    } else{
         block_addr(NULL, qsnode.saddr);
+    }
 
     LOG(logfile, "holding down address %s triggered by RBL",
-        inet_ntoa(*(struct in_addr *) &qsnode.saddr));
+        inet_ntoa(*(struct in_addr *)&qsnode.saddr));
 
-}
+} /* get_rbl_answer */
 
 void
 make_rbl_query(uint32_t addr)
 {
-    char           *query;
-    char           *addr_str;
-    uint32_t       *addrarg;
-    int             name_sz;
+    char     *query;
+    char     *addr_str;
+    uint32_t *addrarg;
+    int       name_sz;
 
     addr = htonl(addr);
 
@@ -116,10 +120,11 @@ make_rbl_query(uint32_t addr)
         return;
     }
 
-    addr_str = inet_ntoa(*(struct in_addr *) &addr);
+    addr_str = inet_ntoa(*(struct in_addr *)&addr);
 
-    if (!addr_str)
+    if (!addr_str) {
         return;
+    }
 
     name_sz = strlen(addr_str) + strlen(rbl_zone) + 4;
 
@@ -143,7 +148,7 @@ make_rbl_query(uint32_t addr)
 
     rbl_queries += 1;
     evdns_resolve_ipv4(query, 0,
-                       (void *) get_rbl_answer, (void *) addrarg);
+                       (void *)get_rbl_answer, (void *)addrarg);
 
     free(query);
-}
+} /* make_rbl_query */

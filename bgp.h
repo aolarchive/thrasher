@@ -3,8 +3,8 @@
 #include "bgpd.h"
 
 typedef struct _bgp_community {
-    uint16_t        asn;
-    uint16_t        community;
+    uint16_t asn;
+    uint16_t community;
 } bgp_community_t;
 
 int thrash_bgp_connect(const char *);

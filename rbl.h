@@ -1,6 +1,6 @@
 typedef struct rbl_negcache {
-    uint32_t        addr;
-    struct event    timeout;
+    uint32_t     addr;
+    struct event timeout;
 } rbl_negcache_t;
 
 void rbl_init(void);

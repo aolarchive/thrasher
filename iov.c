@@ -15,8 +15,9 @@ initialize_iov(iov_t * iovec, size_t len)
         exit(1);
     }
 
-    if (iovec->buf)
+    if (iovec->buf) {
         free(iovec->buf);
+    }
 
     if (!(iovec->buf = malloc(len))) {
         fprintf(stderr, "Out of memory: %s", strerror(errno));
@@ -30,8 +31,9 @@ initialize_iov(iov_t * iovec, size_t len)
 void
 reset_iov(iov_t * iovec)
 {
-    if (iovec->buf)
+    if (iovec->buf) {
         free(iovec->buf);
+    }
 
     iovec->buf = NULL;
     iovec->to_read = 0;
@@ -41,34 +43,36 @@ reset_iov(iov_t * iovec)
 int
 read_iov(iov_t * iovec, int sock)
 {
-    int             bytes_read;
+    int bytes_read;
 
     bytes_read = recv(sock, &iovec->buf[iovec->offset], iovec->to_read,
                       MSG_NOSIGNAL);
 
-    if (bytes_read <= 0)
-        return -1;
+    if (bytes_read <= 0) {
+        return(-1);
+    }
 
     iovec->offset += bytes_read;
     iovec->to_read -= bytes_read;
 
-    return iovec->to_read;
+    return(iovec->to_read);
 }
 
 int
 write_iov(iov_t * iovec, int sock)
 {
-    int             bytes_written;
+    int bytes_written;
 
     bytes_written = send(sock,
                          &iovec->buf[iovec->offset], iovec->to_read,
                          MSG_NOSIGNAL);
 
-    if (bytes_written <= 0)
-        return -1;
+    if (bytes_written <= 0) {
+        return(-1);
+    }
 
     iovec->offset += bytes_written;
     iovec->to_read -= bytes_written;
 
-    return iovec->to_read;
+    return(iovec->to_read);
 }

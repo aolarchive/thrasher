@@ -31,18 +31,19 @@ init_thrash_client(void)
     memset(&ret->data, 0, sizeof(iov_t));
     memset(&ret->event, 0, sizeof(struct event));
 
-    return ret;
+    return(ret);
 }
 
 int
 thrash_client_connect(thrash_client_t * cli)
 {
     struct sockaddr_in inaddr;
-    uint32_t        addr;
-    int             sock;
+    uint32_t           addr;
+    int                sock;
 
-    if (!cli || !cli->host)
-        return -1;
+    if (!cli || !cli->host) {
+        return(-1);
+    }
 
     addr = inet_addr(cli->host);
     inaddr.sin_family = AF_INET;
@@ -51,42 +52,42 @@ thrash_client_connect(thrash_client_t * cli)
 
     if ((sock = socket(PF_INET, SOCK_STREAM, 0)) <= 0) {
         printf("Sockerr: %s\n", strerror(errno));
-        return -1;
+        return(-1);
     }
 
-    if (connect(sock, (struct sockaddr *) &inaddr, sizeof(inaddr))) {
+    if (connect(sock, (struct sockaddr *)&inaddr, sizeof(inaddr))) {
         printf("Connerr: %s\n", strerror(errno));
-        return -1;
+        return(-1);
     }
 
     if (fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, 0) | O_NONBLOCK)) {
         printf("Sockerr: %s\n", strerror(errno));
-        return -1;
+        return(-1);
     }
 
     thrash_client_setsock(cli, sock);
 
-    return 0;
+    return(0);
 }
 
 void
 thrash_client_read_resp(int sock, short which, thrash_client_t * cli)
 {
-    uint8_t         resp;
-    int             bytes_read;
-    thrash_resp_t  *tresp;
+    uint8_t        resp;
+    int            bytes_read;
+    thrash_resp_t *tresp;
 
     tresp = malloc(sizeof(*tresp));
     assert(tresp != NULL);
 
     if (cli->type == TYPE_THRESHOLD_v3) {
-        char           *data = malloc(5);
+        char *data = malloc(5);
 
         bytes_read = recv(sock, data, 5, 0);
         assert(bytes_read == 5);
 
         /*
-         * copy over the identifier for v3 packets 
+         * copy over the identifier for v3 packets
          */
         memcpy(&tresp->ident, data, 4);
         memcpy(&tresp->permit, &data[4], 1);
@@ -105,7 +106,7 @@ thrash_client_read_resp(int sock, short which, thrash_client_t * cli)
 void
 thrash_client_write(int sock, short which, thrash_client_t * cli)
 {
-    int             ioret;
+    int ioret;
 
     ioret = write_iov(&cli->data, sock);
 
@@ -116,7 +117,7 @@ thrash_client_write(int sock, short which, thrash_client_t * cli)
 
     if (ioret > 0) {
         event_set(&cli->event, sock, EV_WRITE,
-                  (void *) thrash_client_write, cli);
+                  (void *)thrash_client_write, cli);
         event_add(&cli->event, 0);
     }
 
@@ -128,7 +129,7 @@ thrash_client_write(int sock, short which, thrash_client_t * cli)
     }
 
     event_set(&cli->event, sock, EV_READ,
-              (void *) thrash_client_read_resp, (void *) cli);
+              (void *)thrash_client_read_resp, (void *)cli);
     event_add(&cli->event, 0);
 }
 
@@ -139,8 +140,9 @@ create_v1_query(const char *host, const char *uri)
 
     query = malloc(sizeof(*query));
 
-    if (!query)
-        return NULL;
+    if (!query) {
+        return(NULL);
+    }
 
     query->host = NULL;
     query->host_len = 0;
@@ -156,10 +158,10 @@ create_v1_query(const char *host, const char *uri)
         query->uri_len = strlen(uri);
     }
 
-    return query;
+    return(query);
 }
 
-#define create_v2_query() do { create_v1_query(NULL, NULL) } while(0);
+#define create_v2_query() do { create_v1_query(NULL, NULL) } while (0);
 
 client_query_t *
 create_v3_query(const char *host, const char *uri, uint32_t id)
@@ -169,12 +171,13 @@ create_v3_query(const char *host, const char *uri, uint32_t id)
 
     query = create_v1_query(host, uri);
 
-    if (!query)
-        return NULL;
+    if (!query) {
+        return(NULL);
+    }
 
     query->ident = id;
 
-    return query;
+    return(query);
 }
 
 void
@@ -185,83 +188,87 @@ thrash_client_lookup(thrash_client_t * cli, uint32_t addr, void *data)
                     ulen;
     uint32_t        ident;
 
-    q = (client_query_t *) data;
+    q = (client_query_t *)data;
 
-    if (!cli)
+    if (!cli) {
         return;
+    }
 
     switch (cli->type) {
 
-    case TYPE_THRESHOLD_v1:
-        /*
-         * data will be a client_query_t 
-         */
-        if (!q)
-            return;
+        case TYPE_THRESHOLD_v1:
+            /*
+             * data will be a client_query_t
+             */
+            if (!q) {
+                return;
+            }
 
-        hlen = htons(q->host_len);
-        ulen = htons(q->uri_len);
+            hlen = htons(q->host_len);
+            ulen = htons(q->uri_len);
 
-        initialize_iov(&cli->data,
-                       sizeof(uint32_t) +
-                       sizeof(uint16_t) +
-                       sizeof(uint16_t) + q->host_len + q->uri_len + 1);
+            initialize_iov(&cli->data,
+                           sizeof(uint32_t) +
+                           sizeof(uint16_t) +
+                           sizeof(uint16_t) + q->host_len + q->uri_len + 1);
 
-        memcpy(cli->data.buf, &cli->type, 1);
-        memcpy(&cli->data.buf[1], &addr, sizeof(uint32_t));
-        memcpy(&cli->data.buf[5], &hlen, sizeof(uint16_t));
-        memcpy(&cli->data.buf[7], &ulen, sizeof(uint16_t));
-        memcpy(&cli->data.buf[9], q->host, q->host_len);
-        memcpy(&cli->data.buf[9 + q->host_len], q->uri, q->uri_len);
-        break;
-    case TYPE_REMOVE:
-    case TYPE_INJECT:
-    case TYPE_THRESHOLD_v2:
-        /*
-         * [uint8_t type][uint32_t addr] 
-         */
-        initialize_iov(&cli->data, 5);
-        memcpy(cli->data.buf, &cli->type, 1);
-        memcpy(&cli->data.buf[1], &addr, 4);
-        break;
-    case TYPE_THRESHOLD_v3:
-        if (!q)
-            return;
+            memcpy(cli->data.buf, &cli->type, 1);
+            memcpy(&cli->data.buf[1], &addr, sizeof(uint32_t));
+            memcpy(&cli->data.buf[5], &hlen, sizeof(uint16_t));
+            memcpy(&cli->data.buf[7], &ulen, sizeof(uint16_t));
+            memcpy(&cli->data.buf[9], q->host, q->host_len);
+            memcpy(&cli->data.buf[9 + q->host_len], q->uri, q->uri_len);
+            break;
+        case TYPE_REMOVE:
+        case TYPE_INJECT:
+        case TYPE_THRESHOLD_v2:
+            /*
+             * [uint8_t type][uint32_t addr]
+             */
+            initialize_iov(&cli->data, 5);
+            memcpy(cli->data.buf, &cli->type, 1);
+            memcpy(&cli->data.buf[1], &addr, 4);
+            break;
+        case TYPE_THRESHOLD_v3:
+            if (!q) {
+                return;
+            }
 
-        hlen = htons(q->host_len);
-        ulen = htons(q->uri_len);
-        ident = htonl(q->ident);
+            hlen = htons(q->host_len);
+            ulen = htons(q->uri_len);
+            ident = htonl(q->ident);
 
-        initialize_iov(&cli->data, sizeof(uint8_t) +    // type
-                       sizeof(uint32_t) +       // identifier
-                       sizeof(uint32_t) +       // address
-                       sizeof(uint16_t) +       // hostlen
-                       sizeof(uint16_t) +       // urilen
-                       q->host_len + q->uri_len);
+            initialize_iov(&cli->data, sizeof(uint8_t) + /* type */
+                           sizeof(uint32_t) +   /* identifier */
+                           sizeof(uint32_t) +   /* address */
+                           sizeof(uint16_t) +   /* hostlen */
+                           sizeof(uint16_t) +   /* urilen */
+                           q->host_len + q->uri_len);
 
-        memcpy(cli->data.buf, &cli->type, 1);
-        memcpy(&cli->data.buf[1], &q->ident, sizeof(uint32_t));
-        memcpy(&cli->data.buf[5], &addr, sizeof(uint32_t));
-        memcpy(&cli->data.buf[9], &hlen, sizeof(uint16_t));
-        memcpy(&cli->data.buf[11], &ulen, sizeof(uint16_t));
-        memcpy(&cli->data.buf[13], q->host, q->host_len);
-        memcpy(&cli->data.buf[13 + q->host_len], q->uri, q->uri_len);
-        break;
+            memcpy(cli->data.buf, &cli->type, 1);
+            memcpy(&cli->data.buf[1], &q->ident, sizeof(uint32_t));
+            memcpy(&cli->data.buf[5], &addr, sizeof(uint32_t));
+            memcpy(&cli->data.buf[9], &hlen, sizeof(uint16_t));
+            memcpy(&cli->data.buf[11], &ulen, sizeof(uint16_t));
+            memcpy(&cli->data.buf[13], q->host, q->host_len);
+            memcpy(&cli->data.buf[13 + q->host_len], q->uri, q->uri_len);
+            break;
 
-    }
+    } /* switch */
 
     cli->addr_lookup = addr;
 
     event_set(&cli->event, cli->sock, EV_WRITE,
-              (void *) thrash_client_write, cli);
+              (void *)thrash_client_write, cli);
     event_add(&cli->event, 0);
-}
+} /* thrash_client_lookup */
 
 void
 free_thrash_client(thrash_client_t * cli)
 {
-    if (!cli)
+    if (!cli) {
         return;
+    }
 
     close(cli->sock);
     reset_iov(&cli->data);
@@ -284,10 +291,11 @@ resp_callback(thrash_client_t * cli, thrash_resp_t * resp)
         return;
     }
 
-    if (resp->permit)
+    if (resp->permit) {
         printf("%u is blocked!\n", cli->addr_lookup);
-    else
+    } else{
         printf("%u is not blocked\n", cli->addr_lookup);
+    }
 
 
     event_base_loopbreak(cli->evbase);
@@ -298,7 +306,7 @@ resp_callback(thrash_client_t * cli, thrash_resp_t * resp)
 int
 main(int argc, char **argv)
 {
-    uint32_t        i;
+    uint32_t           i;
     struct event_base *evbase;
 
     evbase = event_init();
@@ -323,6 +331,6 @@ main(int argc, char **argv)
 
     free_thrash_client(lc);
 
-    return 0;
+    return(0);
 }
 #endif
