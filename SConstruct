@@ -45,7 +45,7 @@ def configure():
         print "Unknown platform %s" % pl
         sys.exit(1)
 
-    env.Append(CFLAGS = '-Wall')
+    env.Append(CFLAGS = '-Wall -O3 -std=c99 -D_BSD_SOURCE')
 
     enable_bgp    = ARGUMENTS.get('enable-bgp')
     enable_dbg    = ARGUMENTS.get('enable-debug')
