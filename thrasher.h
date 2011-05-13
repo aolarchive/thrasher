@@ -151,6 +151,9 @@ int               thrash_client_connect(thrash_client_t * cli);
 void              thrash_client_read_resp(int sock, short which, thrash_client_t * cli);
 void              thrash_client_write(int sock, short which, thrash_client_t * cli);
 void              thrash_client_lookup(thrash_client_t * cli, uint32_t addr, void * data);
+client_query_t  * create_v1_query(const char *, const char *);
+void              free_thrash_client(thrash_client_t *);
+void              free_thrash_resp(thrash_resp_t *);
 
 /***************************************
 * Server functions                    *

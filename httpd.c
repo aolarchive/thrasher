@@ -15,6 +15,7 @@ extern uint32_t      addr_check;
 extern char        * bind_addr;
 extern uint16_t      bind_port;
 extern uint32_t      soft_block_timeout;
+extern uint32_t      hard_block_timeout;
 extern block_ratio_t site_ratio;
 extern block_ratio_t uri_ratio;
 extern block_ratio_t addr_ratio;
@@ -110,7 +111,8 @@ httpd_put_config(struct evhttp_request * req, void * args) {
     evbuffer_add_printf(buf, "  Addr Check Enabled: %s\n", addr_check ? "yes" : "no");
     evbuffer_add_printf(buf, "  Bind addr:          %s\n", bind_addr);
     evbuffer_add_printf(buf, "  Bind port:          %d\n", bind_port);
-    evbuffer_add_printf(buf, "  Soft block timeout: %d\n\n", soft_block_timeout);
+    evbuffer_add_printf(buf, "  Soft block timeout: %d\n", soft_block_timeout);
+    evbuffer_add_printf(buf, "  Hard block timeout: %d\n\n", hard_block_timeout);
     evbuffer_add_printf(buf, "  Host block ratio: %d hits over %d seconds\n",
         site_ratio.num_connections, site_ratio.timelimit);
     evbuffer_add_printf(buf, "  URI block ratio:  %d hits over %d seconds\n",

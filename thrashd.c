@@ -229,6 +229,7 @@ expire_bnode(int sock, short which, blocked_node_t * bnode) {
         inet_ntoa(*(struct in_addr *)&bnode->saddr), bnode->count);
 
     evtimer_del(&bnode->timeout);
+
     remove_holddown(bnode->saddr);
 
     /*
@@ -280,6 +281,15 @@ expire_bnode(int sock, short which, blocked_node_t * bnode) {
 
     free(bnode);
 } /* expire_bnode */
+
+void
+expire_hard_bnode(int sock, short which, blocked_node_t * bnode) {
+    LOG("HARD Timeout expired for %s after %u hits",
+        inet_ntoa(*(struct in_addr *)&bnode->saddr), bnode->count);
+
+    evtimer_del(&bnode->hard_timeout);
+    return expire_bnode(sock, which, bnode);
+}
 
 void
 expire_recent_bnode(int sock, short which, blocked_node_t * bnode) {
@@ -361,7 +371,7 @@ block_addr(client_conn_t * conn, uint32_t addr) {
         tv.tv_sec  = hard_block_timeout;
         tv.tv_usec = 0;
 
-        evtimer_set(&bnode->hard_timeout, (void *)expire_bnode, bnode);
+        evtimer_set(&bnode->hard_timeout, (void *)expire_hard_bnode, bnode);
         evtimer_add(&bnode->hard_timeout, &tv);
     }
 
@@ -470,8 +480,7 @@ update_thresholds(client_conn_t * conn, char * key, stat_type_t type) {
         triggeraddr =
             strdup(inet_ntoa(*(struct in_addr *)&bnode->first_seen_addr));
 
-        LOG("holding down address %s triggered by %s",
-            blockedaddr, triggeraddr);
+        LOG("holding down address %s triggered by %s", blockedaddr, triggeraddr);
 
         free(blockedaddr);
         free(triggeraddr);
@@ -527,9 +536,7 @@ do_thresholding(client_conn_t * conn) {
         return 1;
     }
 
-    if (recently_blocked && (bnode =
-                                 g_tree_lookup(recently_blocked,
-                                     &conn->query.saddr))) {
+    if (recently_blocked && (bnode = g_tree_lookup(recently_blocked, &conn->query.saddr))) {
         /*
          * this address has been recently expired from the current_blocks
          * and placed into the recently_blocked list.
@@ -634,8 +641,7 @@ do_thresholding(client_conn_t * conn) {
                 blocked = 1;
             }
 
-            if (site_check
-                && update_thresholds(conn, hkey, stat_type_host) == 1) {
+            if (site_check && update_thresholds(conn, hkey, stat_type_host) == 1) {
                 blocked = 1;
             }
 
@@ -973,8 +979,7 @@ client_read_injection(int sock, short which, client_conn_t * conn) {
              * this is starting to get a little hacky I think. We can re-factor
              * if I ever end up doing any other types of features
              */
-            if (recently_blocked &&
-                (bnode = g_tree_lookup(recently_blocked, &saddr))) {
+            if (recently_blocked && (bnode = g_tree_lookup(recently_blocked, &saddr))) {
                 /*
                  * remove the bnode from the recently blocked list
                  * so the bnode is now set to this instead of a new
@@ -1482,6 +1487,7 @@ log_startup(void) {
     LOG("Bind addr:        %s", bind_addr);
     LOG("Listen Port:      %d", bind_port);
     LOG("Block Timeout:    %d", soft_block_timeout);
+    LOG("Hard Block Timeo: %d", hard_block_timeout);
 
     if (rbl_zone) {
         LOG("RBL:                  ENABLED");

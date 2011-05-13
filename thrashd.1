@@ -57,6 +57,10 @@ the address. This is confined within the thrasher v2 packet type.
 When an address is determined to be malicious and no further connections are
 made, this number (in seconds) defines the amount of time it should stay in
 persistent memory.
+.IP "hard-timeout <seconds>"
+A maximum limit an address will persist in the blocked table, overriding any
+block-timeout resets. (block-timeout will reset each time thrashd sees the 
+same address)
 .IP "rbl-zone <zone>"
 If a DNS RBL system is to be utilized, you must define the zone in which queries
 are sent to. For example if your queries must be formatted

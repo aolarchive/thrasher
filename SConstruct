@@ -122,3 +122,4 @@ env['LINKCOMSTR']   = link_program_message
 
 env.Program('thrashd', objects + ['thrashd.c'])
 env.Program('master_thrasher', ['libthrasher.c', 'iov.c', 'master_thrasher.c'])
+env.Program('thrasher_api_test', ['libthrasher.c', 'iov.c', 'thrasher_api_test.c'])
