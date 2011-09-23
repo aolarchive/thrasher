@@ -869,6 +869,14 @@ client_read_v3_header(int sock, short which, client_conn_t * conn)
     LOG(logfile, "Got ident %u", ntohl(conn->id));
 #endif
 
+    if (conn->id == 0) {
+#ifdef DEBUG
+        LOG(logfile, "identifier is 0, closing");
+#endif
+        free_client_conn(conn);
+        return;
+    }
+
     /*
      * go back to reading a v1 like packet 
      */
@@ -1091,6 +1099,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
 
     type = *conn->data.buf;
     conn->type = type;
+    conn->id   = 0;
 
 #ifdef DEBUG
     LOG(logfile, "type %d", type);
