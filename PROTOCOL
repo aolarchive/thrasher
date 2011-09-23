@@ -1,0 +1,68 @@
+Types
+    TYPE_THRESHOLD_v1 = 0
+    TYPE_REMOVE       = 1
+    TYPE_INJECT       = 2
+    TYPE_THRESHOLD_v2 = 3
+    TYPE_THRESHOLD_v3 = 4
+
+
+TYPE_THRESHOLD_v1:
+
+Query if in hold down state or not
+
+Query:
+  u08        type = 0
+  u32        address
+  u16        host len
+  u16        uri len
+  host_len   host
+  uri_len    uri
+Reply:
+  u08        holddown
+
+
+TYPE_REMOVE:
+Remove from hold down state, but doesn't remove any other stats
+so it is possible to enter hold down state again rather quickly
+
+Query:
+  u08        type = 1
+  u32        address
+Reply: 
+  None
+
+TYPE_INJECT:
+Add to hold down state
+
+Query:
+  u08        type = 2
+  u32        address
+Reply: 
+  None
+
+
+TYPE_THRESHOLD_v2:
+
+Query if in hold down state or not
+
+Query:
+  u08        type = 3
+  u32        address
+Reply:
+  u08        holddown
+
+
+TYPE_THRESHOLD_v3
+Query if in hold down state or not, with an added identifier
+
+Query:
+  u08        type = 4
+  u32        identifier (can not be zero)
+  u32        address
+  u16        host len
+  u16        uri len
+  host_len   host
+  uri_len    uri
+
+Reply:
+  u08        holddown
