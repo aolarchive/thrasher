@@ -13,10 +13,10 @@ Query if in hold down state or not
 Query:
   u08        type = 0
   u32        address
-  u16        host len
   u16        uri len
-  host_len   host
+  u16        host len
   uri_len    uri
+  host_len   host
 Reply:
   u08        holddown
 
@@ -57,12 +57,12 @@ Query if in hold down state or not, with an added identifier
 
 Query:
   u08        type = 4
-  u32        identifier (can not be zero)
+  u32        identifier
   u32        address
-  u16        host len
   u16        uri len
-  host_len   host
+  u16        host len
   uri_len    uri
+  host_len   host
 
 Reply:
   u08        holddown
