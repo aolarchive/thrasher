@@ -50,12 +50,11 @@ int event_remaining_seconds(struct event *ev)
 gboolean
 fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer *buf)
 {
-    char           blockedaddr[20];
-    char           triggeraddr[20];
+    char           blockedaddr[20] = { 0 };
+    char           triggeraddr[20] = { 0 };
 
-    strcpy(blockedaddr, inet_ntoa(*(struct in_addr *) &val->saddr));
-
-    strcpy(triggeraddr, inet_ntoa(*(struct in_addr *) &val->first_seen_addr));
+    strncpy(blockedaddr, inet_ntoa(*(struct in_addr *) &val->saddr), sizeof(blockedaddr) - 1);
+    strncpy(triggeraddr, inet_ntoa(*(struct in_addr *) &val->first_seen_addr), sizeof(triggeraddr) - 1);
 
 
     evbuffer_add_printf(buf, "%-15s %-15s %-10d ",
