@@ -110,6 +110,9 @@ typedef struct query {
 } query_t;
 
 typedef struct client_conn {
+    uint64_t        requests;
+    time_t          conn_time;
+    time_t          last_time;
     uint32_t        conn_addr;
     uint16_t        conn_port;
     int             sock;

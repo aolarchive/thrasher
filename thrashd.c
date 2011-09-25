@@ -499,8 +499,8 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
         triggeraddr =
             strdup(inet_ntoa(*(struct in_addr *) &bnode->first_seen_addr));
 
-        LOG(logfile, "holding down address %s triggered by %s",
-            blockedaddr, triggeraddr);
+        LOG(logfile, "type %d holding down address %s triggered by %s (%d >= %d)",
+            type, blockedaddr, triggeraddr, stats->connections, ratio->num_connections);
 
         free(blockedaddr);
         free(triggeraddr);
@@ -653,24 +653,24 @@ do_thresholding(client_conn_t * conn)
 
     case TYPE_THRESHOLD_v1:
     case TYPE_THRESHOLD_v3:
-        ukeylen = conn->query.uri_len + 13;
+        ukeylen = conn->query.uri_len + 14;
 
         if (!(ukey = calloc(ukeylen, 1))) {
             LOG(logfile, "Out of memory: %s", strerror(errno));
             exit(1);
         }
 
-        hkeylen = conn->query.host_len + 13;
+        hkeylen = conn->query.host_len + 14;
 
         if (!(hkey = calloc(hkeylen, 1))) {
             LOG(logfile, "Out of memory: %s", strerror(errno));
             exit(1);
         }
 
-        snprintf(ukey, ukeylen - 1, "%u%s", conn->query.saddr,
+        snprintf(ukey, ukeylen - 1, "%u:%s", conn->query.saddr,
                  conn->query.uri);
 
-        snprintf(hkey, hkeylen - 1, "%u%s", conn->query.saddr,
+        snprintf(hkey, hkeylen - 1, "%u:%s", conn->query.saddr,
                  conn->query.host);
 
         if (uri_check && update_thresholds(conn, ukey, stat_type_uri) == 1)
@@ -729,7 +729,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
          * else make it only 1 byte 
          */
         initialize_iov(&conn->data,
-                       conn->id ?
+                       conn->type == TYPE_THRESHOLD_v3 ?
                        sizeof(uint32_t) +
                        sizeof(uint8_t) : sizeof(uint8_t));
 
@@ -742,7 +742,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
     LOG(logfile, "saddr %u block stats: %d\n", conn->query.saddr, blocked);
 #endif
 
-    if (conn->id) {
+    if (conn->type == TYPE_THRESHOLD_v3) {
         memcpy(conn->data.buf, &conn->id, sizeof(uint32_t));
         conn->data.buf[4] = blocked;
     } else
@@ -868,14 +868,6 @@ client_read_v3_header(int sock, short which, client_conn_t * conn)
 #ifdef DEBUG
     LOG(logfile, "Got ident %u", ntohl(conn->id));
 #endif
-
-    if (conn->id == 0) {
-#ifdef DEBUG
-        LOG(logfile, "identifier is 0, closing");
-#endif
-        free_client_conn(conn);
-        return;
-    }
 
     /*
      * go back to reading a v1 like packet 
@@ -1076,6 +1068,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
 {
     int             ioret;
     uint8_t         type;
+    struct timeval  tv;
 
     reset_connection_timeout(conn, connection_timeout);
 
@@ -1099,7 +1092,9 @@ client_read_type(int sock, short which, client_conn_t * conn)
 
     type = *conn->data.buf;
     conn->type = type;
-    conn->id   = 0;
+    evutil_gettimeofday(&tv, NULL);
+    conn->last_time = tv.tv_sec;
+    conn->requests++;
 
 #ifdef DEBUG
     LOG(logfile, "type %d", type);
@@ -1149,6 +1144,7 @@ server_driver(int sock, short which, void *args)
     int             csock;
     struct sockaddr_in addr;
     socklen_t       addrlen;
+    struct timeval  tv;
 
     addrlen = sizeof(struct sockaddr);
     csock = accept(sock, (struct sockaddr *) &addr, &addrlen);
@@ -1173,6 +1169,9 @@ server_driver(int sock, short which, void *args)
     new_conn->sock = csock;
     new_conn->conn_addr = (uint32_t) addr.sin_addr.s_addr;
     new_conn->conn_port = (uint16_t) addr.sin_port;
+    evutil_gettimeofday(&tv, NULL);
+    new_conn->conn_time = tv.tv_sec;
+
 
 #ifdef DEBUG
     LOG(logfile, "New connection from %s:%d",
