@@ -4,11 +4,9 @@
 use strict;
 use IO::Socket;
 use LWP::Simple;
-use Test::More tests => 62;
+use Test::More tests => 83;
+use File::Temp qw/tempfile/;
 #use Data::Dumper;
-
-$main::thrasher = IO::Socket::INET->new('localhost:1972');
-$main::sockport = $main::thrasher->sockport();
 
 use constant {
 TYPE_THRESHOLD_v1 => 0,
@@ -76,20 +74,20 @@ my ($identifier, $address, $host, $uri) = @_;
 
 sub thrasherd_http_holddowns {
     my %holddowns;
-    my $content = get("http://localhost:1979/holddowns");
+    my $content = get("http://localhost:54321/holddowns");
     #print $content;
     foreach my $line (split(/\n/, $content)) {
         next if ($line =~ /Blocked/);
         chomp $line;
-        my ($ip, $trigger, $count, $timeout, $recentto) = split(/ +/, $line);
-        $holddowns{$ip} = {trigger => $trigger, count => $count, timeout => $timeout, recentTimeout => $recentto};
+        my ($ip, $trigger, $count, $timeout, $hardto, $recentto) = split(/ +/, $line);
+        $holddowns{$ip} = {trigger => $trigger, count => $count, timeout => $timeout, hardTimeout => $hardto, recentTimeout => $recentto};
     }
     return %holddowns;
 }
 
 sub thrasherd_http_config {
     my %config;
-    my $content = get("http://localhost:1979/config");
+    my $content = get("http://localhost:54321/config");
     #print $content;
     foreach my $line (split(/\n/, $content)) {
         next if ($line !~ /:/);
@@ -102,7 +100,7 @@ sub thrasherd_http_config {
 
 sub thrasherd_http_connections {
     my %connections;
-    my $content = get("http://localhost:1979/connections");
+    my $content = get("http://localhost:54321/connections");
     #print $content;
     foreach my $line (split(/\n/, $content)) {
         next if ($line !~ /^\d/);
@@ -115,7 +113,7 @@ sub thrasherd_http_connections {
 
 sub thrasherd_http_addrs {
     my %addrs;
-    my $content = get("http://localhost:1979/addrs");
+    my $content = get("http://localhost:54321/addrs");
     #print $content;
     foreach my $line (split(/\n/, $content)) {
         next if ($line !~ /^\d/);
@@ -128,7 +126,7 @@ sub thrasherd_http_addrs {
 
 sub thrasherd_http_uris {
     my %uris;
-    my $content = get("http://localhost:1979/uris");
+    my $content = get("http://localhost:54321/uris");
     #print $content;
     foreach my $line (split(/\n/, $content)) {
         next if ($line !~ /^\d/);
@@ -141,7 +139,7 @@ sub thrasherd_http_uris {
 
 sub thrasherd_http_hosts {
     my %hosts;
-    my $content = get("http://localhost:1979/hosts");
+    my $content = get("http://localhost:54321/hosts");
     #print $content;
     foreach my $line (split(/\n/, $content)) {
         next if ($line !~ /^\d/);
@@ -151,6 +149,12 @@ sub thrasherd_http_hosts {
     }
     return %hosts;
 }
+
+######################################################################
+
+$main::thrasher = IO::Socket::INET->new('localhost:54320');
+die "Couldn't connect to thrashd on 'localhost:54320'" if (!$main::thrasher);
+$main::sockport = $main::thrasher->sockport();
 
 # Check if things have cleared out, don't want failed tests
 my %addrs = thrasherd_http_addrs();
@@ -163,9 +167,15 @@ if (exists $addrs{"4.3.2.1"} || exists $uris{"4.3.2.1:/"}) {
 
 # Get config information for tests
 %main::config = thrasherd_http_config();
+#print Dumper(\%main::config);
+is ($main::config{"URI block ratio"}, "10 hits over 11 seconds");
+is ($main::config{"Host block ratio"}, "12 hits over 13 seconds");
+is ($main::config{"ADDR block ratio"}, "14 hits over 15 seconds");
+is ($main::config{"Soft block timeout"}, 6);
+is ($main::config{"Hard block timeout"}, 10);
+
 my $softtimeout = $main::config{"Soft block timeout"};
-$main::config{"ADDR block ratio"} =~ /(\d+) hits over (\d+) seconds/;
-my $addrtimeout = $2;
+my $hardtimeout = $main::config{"Hard block timeout"};
 
 # Check our connection stats
 my %connections = thrasherd_http_connections();
@@ -177,6 +187,8 @@ $main::connDate = $connections{"127.0.0.1:$main::sockport"}->{connDate};
 # First test adding ips to holddown
 thrasher_add("10.10.10.10");
 thrasher_add("1.2.3.4");
+
+sleep(1);
 
 %connections = thrasherd_http_connections();
 is ($connections{"127.0.0.1:$main::sockport"}->{requests}, 2);
@@ -198,9 +210,12 @@ my %holddowns = thrasherd_http_holddowns();
 is($holddowns{"1.2.3.4"}->{count}, 3);
 is($holddowns{"1.2.3.4"}->{trigger}, "255.255.255.255");
 cmp_ok($holddowns{"1.2.3.4"}->{timeout}, '>=', $softtimeout-1);
+is($holddowns{"1.2.3.4"}->{hardTimeout}, "N/A");
+is($holddowns{"1.2.3.4"}->{recentTimeout}, "N/A");
 is($holddowns{"10.10.10.10"}->{count}, 4);
 is($holddowns{"10.10.10.10"}->{trigger}, "255.255.255.255");
 cmp_ok($holddowns{"10.10.10.10"}->{timeout}, '>=', $softtimeout-1);
+is($holddowns{"10.10.10.10"}->{recentTimeout}, "N/A");
 is($holddowns{"4.3.2.1"}, undef);
 
 sleep(1);
@@ -253,15 +268,20 @@ for (my $i = 0; $i < 100; $i++) {
     thrasher_query_v3(2, "1.2.3.4", "host", "/");
 }
 
-sleep(1);
 %holddowns = thrasherd_http_holddowns();
 is($holddowns{"1.2.3.4"}->{count}, 289);
 is($holddowns{"1.2.3.4"}->{trigger}, "127.0.0.1");
 cmp_ok($holddowns{"1.2.3.4"}->{timeout}, '>=', $softtimeout-1);
+cmp_ok($holddowns{"1.2.3.4"}->{hardTimeout}, '>=', $hardtimeout-1);
+is($holddowns{"1.2.3.4"}->{recentTimeout}, "N/A");
 is($holddowns{"10.10.10.10"}->{count}, 289);
 is($holddowns{"10.10.10.10"}->{trigger}, "127.0.0.1");
 cmp_ok($holddowns{"10.10.10.10"}->{timeout}, '>=', $softtimeout-1);
+cmp_ok($holddowns{"10.10.10.10"}->{hardTimeout}, '>=', $hardtimeout-1);
+is($holddowns{"10.10.10.10"}->{recentTimeout}, "N/A");
 is($holddowns{"4.3.2.1"}, undef);
+
+sleep(4);
 
 is (thrasher_query_v1("10.10.10.10", "host", "/"), 1);
 is (thrasher_query_v1("1.2.3.4", "host", "/"), 1);
@@ -273,7 +293,24 @@ is (thrasher_query_v3(1, "10.10.10.10", "host", "/"), 1);
 is (thrasher_query_v3(2, "1.2.3.4", "host", "/"), 1);
 is (thrasher_query_v3(3, "4.3.2.1", "host", "/"), 0);
 
+# Make sure the hard timeout didn't get reset
+%holddowns = thrasherd_http_holddowns();
+cmp_ok($holddowns{"1.2.3.4"}->{timeout}, '>=', $holddowns{"1.2.3.4"}->{hardTimeout});
+cmp_ok($holddowns{"10.10.10.10"}->{timeout}, '>=', $holddowns{"10.10.10.10"}->{hardTimeout});
+
 %addrs = thrasherd_http_addrs();
+is ($addrs{"1.2.3.4"}->{connections}, 5);
+cmp_ok($holddowns{"10.10.10.10"}->{hardTimeout} + 1, '<', $addrs{"10.10.10.10"}->{timeout});
+cmp_ok($holddowns{"1.2.3.4"}->{hardTimeout} + 1, '<', $addrs{"1.2.3.4"}->{timeout});
+
+# Make sure when hard timeout fires, the addr table is cleared
+sleep($holddowns{"10.10.10.10"}->{hardTimeout}+1);
+%holddowns = thrasherd_http_holddowns();
+%addrs = thrasherd_http_addrs();
+is ($addrs{"1.2.3.4"}, undef);
+is ($holddowns{"1.2.3.4"}, undef);
+is ($addrs{"10.10.10.10"}, undef);
+is ($holddowns{"10.10.10.10"}, undef);
 
 
 # Cleanup
@@ -286,4 +323,3 @@ my %connections = thrasherd_http_connections();
 is ($connections{"127.0.0.1:$main::sockport"}->{requests}, 635);
 is ($connections{"127.0.0.1:$main::sockport"}->{connDate}, $main::connDate);
 ok (exists $connections{"127.0.0.1:$main::sockport"}->{lastDate});
-

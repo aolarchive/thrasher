@@ -148,6 +148,7 @@ typedef struct blocked_node {
     uint32_t        first_seen_addr;
     block_ratio_t   ratio;
     struct event    timeout;
+    struct event    hard_timeout;
     struct event    recent_block_timeout;
 } blocked_node_t;
 
