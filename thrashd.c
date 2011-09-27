@@ -19,6 +19,7 @@ uint32_t        addr_check;
 char           *bind_addr;
 uint16_t        bind_port;
 uint32_t        soft_block_timeout;
+uint32_t        hard_block_timeout;
 block_ratio_t   site_ratio;
 block_ratio_t   uri_ratio;
 block_ratio_t   addr_ratio;
@@ -89,7 +90,8 @@ free_client_conn(client_conn_t * conn)
         ntohs(conn->conn_port));
 #endif
 
-    evtimer_del(&conn->timeout);
+    if (connection_timeout) /* Stop the warning */
+        evtimer_del(&conn->timeout);
     event_del(&conn->event);
 
     reset_iov(&conn->data);
@@ -126,6 +128,7 @@ globals_init(void)
     bind_port = 1972;
     server_port = 1979;
     soft_block_timeout = 60;
+    hard_block_timeout = 0;
     site_ratio.num_connections = 10;
     uri_ratio.num_connections = 10;
     site_ratio.timelimit = 60;
@@ -265,6 +268,8 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
     LOG(logfile, "expired address %s after %u hits",
         inet_ntoa(*(struct in_addr *) &bnode->saddr), bnode->count);
 
+    if (bnode->hard_timeout.ev_timeout.tv_sec)
+        evtimer_del(&bnode->hard_timeout);
     evtimer_del(&bnode->timeout);
     remove_holddown(bnode->saddr);
 
@@ -315,6 +320,26 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
     }
 
     free(bnode);
+}
+
+
+void
+expire_hard_bnode(int sock, short which, blocked_node_t * bnode) {
+    char            akey[20];
+    qstats_t       *stats;
+#ifdef DEBUG
+    LOG(logfile, "HARD Timeout expired for %s after %u hits",
+        inet_ntoa(*(struct in_addr *)&bnode->saddr), bnode->count);
+#endif
+
+    snprintf(akey, sizeof(akey), "%u", bnode->saddr);
+    stats = g_hash_table_lookup(addr_table, akey);
+    if (stats) {
+        printf("ALW: Need to free\n");
+        expire_stats_node(0, 0, stats);
+    }
+
+    return expire_bnode(sock, which, bnode);
 }
 
 void
@@ -394,6 +419,15 @@ block_addr(client_conn_t * conn, uint32_t addr)
 
     evtimer_set(&bnode->timeout, (void *) expire_bnode, bnode);
     evtimer_add(&bnode->timeout, &tv);
+
+/* add our hard timeout, if the option is enabled */
+    if (hard_block_timeout > 0) {
+        tv.tv_sec  = hard_block_timeout;
+        tv.tv_usec = 0;
+
+        evtimer_set(&bnode->hard_timeout, (void *)expire_hard_bnode, bnode);
+        evtimer_add(&bnode->hard_timeout, &tv);
+    }
 #ifdef WITH_BGP
     /*
      * XXX TEST XXX 
@@ -1263,6 +1297,7 @@ load_config(const char *file)
 	{"thrashd", "listen-port", _c_f_t_int, &bind_port}, 
 	{"thrashd", "listen-addr", _c_f_t_str, &bind_addr}, 
 	{"thrashd", "block-timeout", _c_f_t_int, &soft_block_timeout}, 
+	{"thrashd", "hard-timeout", _c_f_t_int, &hard_block_timeout}, 
 	{"thrashd", "uri-ratio", _c_f_t_ratio, &uri_ratio}, 
 	{"thrashd", "host-ratio", _c_f_t_ratio, &site_ratio}, 
 	{"thrashd", "addr-ratio", _c_f_t_ratio, &addr_ratio}, 
@@ -1597,10 +1632,11 @@ log_startup(void)
         LOG(logfile, "Host Block:       DISABLED%s", "");
     }
 
-    LOG(logfile, "HTTP Listen Port: %d", server_port);
-    LOG(logfile, "Bind addr:        %s", bind_addr);
-    LOG(logfile, "Listen Port:      %d", bind_port);
-    LOG(logfile, "Block Timeout:    %d", soft_block_timeout);
+    LOG(logfile, "HTTP Listen Port:   %d", server_port);
+    LOG(logfile, "Bind addr:          %s", bind_addr);
+    LOG(logfile, "Listen Port:        %d", bind_port);
+    LOG(logfile, "Block Timeout:      %d", soft_block_timeout);
+    LOG(logfile, "Hard Block Timeout: %d", hard_block_timeout);
 
     if (rbl_zone) {
         LOG(logfile, "RBL:                  ENABLED%s", "");

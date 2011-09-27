@@ -8,6 +8,7 @@ extern uint32_t addr_check;
 extern char    *bind_addr;
 extern uint16_t bind_port;
 extern uint32_t soft_block_timeout;
+extern uint32_t hard_block_timeout;
 extern block_ratio_t site_ratio;
 extern block_ratio_t uri_ratio;
 extern block_ratio_t addr_ratio;
@@ -66,10 +67,16 @@ fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer *buf)
         evbuffer_add_printf(buf, "%-10d ", event_remaining_seconds(&val->timeout));
     }
 
+    if (val->hard_timeout.ev_timeout.tv_sec == 0) {
+        evbuffer_add_printf(buf, "%-10s ", "N/A");
+    } else  {
+        evbuffer_add_printf(buf, "%-10d ", event_remaining_seconds(&val->hard_timeout));
+    }
+
     if (val->recent_block_timeout.ev_timeout.tv_sec == 0) {
         evbuffer_add_printf(buf, "%-10s\n", "N/A");
     } else  {
-        evbuffer_add_printf(buf, "%-10d ", event_remaining_seconds(&val->recent_block_timeout));
+        evbuffer_add_printf(buf, "%-10d\n", event_remaining_seconds(&val->recent_block_timeout));
     }
      
     return FALSE;
@@ -143,8 +150,8 @@ httpd_put_holddowns(struct evhttp_request *req, void *args)
 
     buf = evbuffer_new();
 
-    evbuffer_add_printf(buf, "%-15s %-15s %-10s %-10s %-10s\n",
-                        "Blocked IP", "Triggered By", "Count", "TimeOut", "RecentTO");
+    evbuffer_add_printf(buf, "%-15s %-15s %-10s %-10s %-10s %-10s\n",
+                        "Blocked IP", "Triggered By", "Count", "Soft (s)", "Hard (s)", "Recent (s)");
 
     g_tree_foreach(current_blocks, (GTraverseFunc) fill_http_blocks, buf);
 
@@ -256,6 +263,7 @@ httpd_put_config(struct evhttp_request *req, void *args)
     evbuffer_add_printf(buf, "  Bind port:             %d\n", bind_port);
     evbuffer_add_printf(buf, "  Client Idle Timeout:   %u\n", connection_timeout);
     evbuffer_add_printf(buf, "  Soft block timeout:    %d\n\n", soft_block_timeout);
+    evbuffer_add_printf(buf, "  Hard block timeout:    %d\n\n", hard_block_timeout);
 
     evbuffer_add_printf(buf, "  RBL Zone:              %s\n", rbl_zone?rbl_zone:"NULL");
     evbuffer_add_printf(buf, "  RBL Nameserver:        %s\n", rbl_ns?rbl_ns:"NULL");
