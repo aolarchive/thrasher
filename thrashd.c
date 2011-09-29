@@ -335,7 +335,6 @@ expire_hard_bnode(int sock, short which, blocked_node_t * bnode) {
     snprintf(akey, sizeof(akey), "%u", bnode->saddr);
     stats = g_hash_table_lookup(addr_table, akey);
     if (stats) {
-        printf("ALW: Need to free\n");
         expire_stats_node(0, 0, stats);
     }
 

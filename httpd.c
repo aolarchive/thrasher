@@ -40,12 +40,15 @@ extern GHashTable     *addr_table;
 /* Must be an easier way to figure out when an event is going to fire */
 int event_remaining_seconds(struct event *ev) 
 {
-    void          *event_base;
-    struct timeval base_tv;
+    struct timeval now_tv;
+    struct timeval event_tv;
+    struct timeval remaining_tv;
 
-    event_base = event_get_base(ev);
-    event_base_gettimeofday_cached(event_base, &base_tv);
-    return ev->ev_timeout.tv_sec - base_tv.tv_sec;
+    event_pending(ev, EV_TIMEOUT, &event_tv);
+    evutil_gettimeofday(&now_tv, NULL);
+    evutil_timersub(&event_tv, &now_tv, &remaining_tv);
+
+    return remaining_tv.tv_sec;
 }
 
 gboolean
