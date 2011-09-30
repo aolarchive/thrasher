@@ -135,11 +135,11 @@ typedef struct svrconn_t {
 } conn_t;
 
 typedef struct qstats {
+    GHashTable     *table;
     char           *key;
+    struct event    timeout;
     uint32_t        saddr;
     uint32_t        connections;
-    GHashTable     *table;
-    struct event    timeout;
 } qstats_t;
 
 typedef struct blocked_node {
@@ -188,7 +188,7 @@ void expire_bnode(int sock, short which, blocked_node_t * bnode);
 void expire_recent_bnode(int sock, short which, blocked_node_t *bnode);
 void expire_stats_node(int sock, short which, qstats_t * stat_node);
 blocked_node_t *block_addr(client_conn_t * conn, uint32_t addr);
-int update_thresholds(client_conn_t * conn, char *key, stat_type_t type);
+int update_thresholds(client_conn_t * conn, char *key, stat_type_t type, block_ratio_t *ratio);
 int do_thresholding(client_conn_t * conn);
 
 void client_process_data(int sock, short which, client_conn_t * conn);

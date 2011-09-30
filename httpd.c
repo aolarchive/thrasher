@@ -9,7 +9,7 @@ extern char    *bind_addr;
 extern uint16_t bind_port;
 extern uint32_t soft_block_timeout;
 extern uint32_t hard_block_timeout;
-extern block_ratio_t site_ratio;
+extern block_ratio_t host_ratio;
 extern block_ratio_t uri_ratio;
 extern block_ratio_t addr_ratio;
 extern int      server_port;
@@ -36,6 +36,8 @@ extern GTree   *recently_blocked;
 extern GHashTable     *uri_table;
 extern GHashTable     *host_table;
 extern GHashTable     *addr_table;
+
+extern GHashTable     *uris_ratio_table;
 
 /* Must be an easier way to figure out when an event is going to fire */
 int event_remaining_seconds(struct event *ev) 
@@ -144,6 +146,18 @@ fill_http_urihost(void *key, qstats_t * val, struct evbuffer *buf)
     evbuffer_add_printf(buf, "\n");
     return FALSE;
 }
+
+gboolean
+fill_http_uriratio(void *key, block_ratio_t * val, struct evbuffer *buf)
+{
+    evbuffer_add_printf(buf,
+                        "  %30.30s:  %d hits over %d seconds\n",
+                        key,
+                        val->num_connections, val->timelimit);
+
+    return FALSE;
+}
+
 
 
 void
@@ -275,7 +289,7 @@ httpd_put_config(struct evhttp_request *req, void *args)
 
     evbuffer_add_printf(buf,
                         "  Host block ratio: %d hits over %d seconds\n",
-                        site_ratio.num_connections, site_ratio.timelimit);
+                        host_ratio.num_connections, host_ratio.timelimit);
     evbuffer_add_printf(buf,
                         "  URI block ratio:  %d hits over %d seconds\n",
                         uri_ratio.num_connections, uri_ratio.timelimit);
@@ -308,6 +322,11 @@ httpd_put_config(struct evhttp_request *req, void *args)
     evbuffer_add_printf(buf, "Total queries recv: %llu\n", total_queries);
     evbuffer_add_printf(buf, "DNS Query backlog: %d/%d\n", rbl_queries,
                         rbl_max_queries);
+
+    if (uris_ratio_table) {
+        evbuffer_add_printf(buf, "\nURIs Ratio Table:\n");
+        g_hash_table_foreach(uris_ratio_table, (GHFunc) fill_http_uriratio, buf);
+    }
 
     evhttp_add_header(req->output_headers, "Content-Type", "text/plain");
     evhttp_send_reply(req, HTTP_OK, "OK", buf);
