@@ -20,7 +20,7 @@ char           *bind_addr;
 uint16_t        bind_port;
 uint32_t        soft_block_timeout;
 uint32_t        hard_block_timeout;
-block_ratio_t   site_ratio;
+block_ratio_t   host_ratio;
 block_ratio_t   uri_ratio;
 block_ratio_t   addr_ratio;
 struct event    server_event;
@@ -49,6 +49,7 @@ GHashTable     *uri_states;
 GHashTable     *host_states;
 GKeyFile       *config_file;
 GTree          *recently_blocked;
+GHashTable     *uris_ratio_table;
 GRand          *randdata;
 FILE           *logfile;
 
@@ -129,9 +130,9 @@ globals_init(void)
     server_port = 1979;
     soft_block_timeout = 60;
     hard_block_timeout = 0;
-    site_ratio.num_connections = 10;
+    host_ratio.num_connections = 10;
     uri_ratio.num_connections = 10;
-    site_ratio.timelimit = 60;
+    host_ratio.timelimit = 60;
     uri_ratio.timelimit = 60;
     minimum_random_ratio.num_connections = 0;
     minimum_random_ratio.timelimit = 0;
@@ -162,6 +163,7 @@ globals_init(void)
     recently_blocked_timeout = 0;
     drop_user = NULL;
     drop_group = NULL;
+    uris_ratio_table = NULL;
     logfile = stdout;
     syslog_facility = "local6";
 }
@@ -461,25 +463,21 @@ create_stats_node(uint32_t saddr, const char *key, GHashTable * tbl)
 }
 
 int
-update_thresholds(client_conn_t * conn, char *key, stat_type_t type)
+update_thresholds(client_conn_t * conn, char *key, stat_type_t type, block_ratio_t *ratio)
 {
     GHashTable     *table;
-    static block_ratio_t *ratio;
     qstats_t       *stats;
     struct timeval  tv;
 
     switch (type) {
     case stat_type_uri:
         table = uri_table;
-        ratio = &uri_ratio;
         break;
     case stat_type_host:
         table = host_table;
-        ratio = &site_ratio;
         break;
     case stat_type_address:
         table = addr_table;
-        ratio = &addr_ratio;
         break;
     default:
         return 0;
@@ -706,11 +704,22 @@ do_thresholding(client_conn_t * conn)
         snprintf(hkey, hkeylen - 1, "%u:%s", conn->query.saddr,
                  conn->query.host);
 
-        if (uri_check && update_thresholds(conn, ukey, stat_type_uri) == 1)
-            blocked = 1;
+
+        if (uri_check) {
+            block_ratio_t *request_uri_ratio = NULL;
+
+            if (uris_ratio_table)
+                request_uri_ratio = g_hash_table_lookup(uris_ratio_table, conn->query.uri);
+
+            if (!request_uri_ratio)
+                request_uri_ratio = &uri_ratio;
+            
+            if (update_thresholds(conn, ukey, stat_type_uri, request_uri_ratio) == 1)
+                blocked = 1;
+        }
 
         if (site_check
-            && update_thresholds(conn, hkey, stat_type_host) == 1)
+            && update_thresholds(conn, hkey, stat_type_host, &host_ratio) == 1)
             blocked = 1;
 
         break;
@@ -731,7 +740,7 @@ do_thresholding(client_conn_t * conn)
 
         snprintf(hkey, hkeylen - 1, "%u", conn->query.saddr);
 
-        if (update_thresholds(conn, hkey, stat_type_address) == 1)
+        if (update_thresholds(conn, hkey, stat_type_address, &addr_ratio) == 1)
             blocked = 1;
 
         break;
@@ -1298,7 +1307,7 @@ load_config(const char *file)
 	{"thrashd", "block-timeout", _c_f_t_int, &soft_block_timeout}, 
 	{"thrashd", "hard-timeout", _c_f_t_int, &hard_block_timeout}, 
 	{"thrashd", "uri-ratio", _c_f_t_ratio, &uri_ratio}, 
-	{"thrashd", "host-ratio", _c_f_t_ratio, &site_ratio}, 
+	{"thrashd", "host-ratio", _c_f_t_ratio, &host_ratio}, 
 	{"thrashd", "addr-ratio", _c_f_t_ratio, &addr_ratio}, 
 	{"thrashd", "daemonize", _c_f_t_int, &rundaemon}, 
 	{"thrashd", "syslog", _c_f_t_int, &syslog_enabled}, 
@@ -1332,6 +1341,34 @@ load_config(const char *file)
         LOG(logfile, "Error loading config: %s", strerror(errno));
         exit(1);
     }
+
+    if (g_key_file_has_group(config_file, "uri-ratios")) {
+        gsize length;
+        gchar **keys = g_key_file_get_keys (config_file, "uri-ratios", &length, &error);
+        if (length && keys) {
+            uris_ratio_table = g_hash_table_new(g_str_hash, g_str_equal);
+            for (i = 0 ; i < length; i++) {
+                block_ratio_t *ratio = malloc(sizeof(block_ratio_t));
+                char *str = g_key_file_get_string(config_file,
+                                                  "uri-ratios",
+                                                  keys[i], NULL);
+                if (str) {
+                    gchar **splitter = g_strsplit(str, ":", 2);
+                    if (splitter) {
+                        ratio->num_connections = atoll(splitter[0]);
+                        ratio->timelimit = atoll(splitter[1]);
+                        g_hash_table_insert(uris_ratio_table, keys[i], ratio);
+                        g_strfreev(splitter);
+                    } else {
+                        LOG(logfile, "Bad uri-ratios: %s", str);
+                        exit(1);
+                    }
+                }
+            }
+            /* Do NOT free keys since g_hash_table_insert retains it */
+        }
+    }
+
 
     for (i = 0; c_f_in[i].parent != NULL; i++) {
         char          **svar;
@@ -1619,7 +1656,7 @@ log_startup(void)
 
     if (site_check) {
         LOG(logfile, "Host Block Ratio: %u connections within %u seconds",
-            site_ratio.num_connections, site_ratio.timelimit);
+            host_ratio.num_connections, host_ratio.timelimit);
     } else {
         LOG(logfile, "Host Block:       DISABLED%s", "");
     }

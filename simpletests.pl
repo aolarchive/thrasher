@@ -4,9 +4,9 @@
 use strict;
 use IO::Socket;
 use LWP::Simple;
-use Test::More tests => 83;
+use Test::More tests => 86;
 use File::Temp qw/tempfile/;
-#use Data::Dumper;
+use Data::Dumper;
 
 use constant {
 TYPE_THRESHOLD_v1 => 0,
@@ -167,12 +167,15 @@ if (exists $addrs{"4.3.2.1"} || exists $uris{"4.3.2.1:/"}) {
 
 # Get config information for tests
 %main::config = thrasherd_http_config();
-#print Dumper(\%main::config);
+print Dumper(\%main::config);
 is ($main::config{"URI block ratio"}, "10 hits over 11 seconds");
 is ($main::config{"Host block ratio"}, "12 hits over 13 seconds");
 is ($main::config{"ADDR block ratio"}, "14 hits over 15 seconds");
 is ($main::config{"Soft block timeout"}, 6);
 is ($main::config{"Hard block timeout"}, 10);
+is ($main::config{"/"}, "16 hits over 17 seconds");
+is ($main::config{"/url1"}, "18 hits over 19 seconds");
+is ($main::config{"/foo/bar"}, "20 hits over 21 seconds");
 
 my $softtimeout = $main::config{"Soft block timeout"};
 my $hardtimeout = $main::config{"Hard block timeout"};
@@ -269,12 +272,12 @@ for (my $i = 0; $i < 100; $i++) {
 }
 
 %holddowns = thrasherd_http_holddowns();
-is($holddowns{"1.2.3.4"}->{count}, 289);
+is($holddowns{"1.2.3.4"}->{count}, 286);
 is($holddowns{"1.2.3.4"}->{trigger}, "127.0.0.1");
 cmp_ok($holddowns{"1.2.3.4"}->{timeout}, '>=', $softtimeout-1);
 cmp_ok($holddowns{"1.2.3.4"}->{hardTimeout}, '>=', $hardtimeout-1);
 is($holddowns{"1.2.3.4"}->{recentTimeout}, "N/A");
-is($holddowns{"10.10.10.10"}->{count}, 289);
+is($holddowns{"10.10.10.10"}->{count}, 286);
 is($holddowns{"10.10.10.10"}->{trigger}, "127.0.0.1");
 cmp_ok($holddowns{"10.10.10.10"}->{timeout}, '>=', $softtimeout-1);
 cmp_ok($holddowns{"10.10.10.10"}->{hardTimeout}, '>=', $hardtimeout-1);
@@ -299,7 +302,7 @@ cmp_ok($holddowns{"1.2.3.4"}->{timeout}, '>=', $holddowns{"1.2.3.4"}->{hardTimeo
 cmp_ok($holddowns{"10.10.10.10"}->{timeout}, '>=', $holddowns{"10.10.10.10"}->{hardTimeout});
 
 %addrs = thrasherd_http_addrs();
-is ($addrs{"1.2.3.4"}->{connections}, 5);
+is ($addrs{"1.2.3.4"}->{connections}, 6);
 cmp_ok($holddowns{"10.10.10.10"}->{hardTimeout} + 1, '<', $addrs{"10.10.10.10"}->{timeout});
 cmp_ok($holddowns{"1.2.3.4"}->{hardTimeout} + 1, '<', $addrs{"1.2.3.4"}->{timeout});
 
