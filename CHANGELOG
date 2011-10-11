@@ -1,3 +1,29 @@
+1.0r22 changes
+    * Added support for different uri-ratios per exact match uri. This
+      is defined in a [uri-ratios] config section using 
+      "uri = hits:seconds" syntax
+
+    * Added hard block timeout to control the max time a ip can be 
+      in hold down.
+    
+    * Set content type to text/plain so web interface displays correctly 
+      in browsers
+
+    * Changed /connections to show connect time, last request time, and 
+      number of requests
+
+    * Changed /holddowns to show timeouts
+
+    * Added /addrs to display addrs table
+
+    * Added /uris to display uris table
+
+    * Added /hosts to display hosts table
+
+    * Added basic regression tests 
+
+    * Fixed bug when mixing v3 and v1/v2 queries
+
 1.0r20 changes
 
     * /config additions, syslog additions and fixes
