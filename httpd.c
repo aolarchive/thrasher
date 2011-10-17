@@ -152,7 +152,7 @@ fill_http_uriratio(void *key, block_ratio_t * val, struct evbuffer *buf)
 {
     evbuffer_add_printf(buf,
                         "  %30.30s:  %d hits over %d seconds\n",
-                        key,
+                        (char*)key,
                         val->num_connections, val->timelimit);
 
     return FALSE;
