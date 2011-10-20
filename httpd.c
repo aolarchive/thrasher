@@ -1,5 +1,6 @@
 #include "thrasher.h"
 #include "version.h"
+#include <inttypes.h>
 
 extern char    *process_name;
 extern uint32_t uri_check;
@@ -23,6 +24,7 @@ extern char    *rbl_zone;
 extern int      rbl_negcache_timeout;
 extern char    *rbl_ns;
 extern uint32_t connection_timeout;
+extern uint32_t velocity_num;
 
 extern block_ratio_t minimum_random_ratio;
 extern block_ratio_t maximum_random_ratio;
@@ -66,22 +68,39 @@ fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer *buf)
     evbuffer_add_printf(buf, "%-15s %-15s %-10d ",
                         blockedaddr, triggeraddr, val->count);
 
+    if (val->count == 0) {
+        evbuffer_add_printf(buf, "%-8s ", "N/A");
+    } else if (val->avg_distance_usec == 0) {
+        evbuffer_add_printf(buf, "%-8s ", "Infinite");
+    } else {
+        struct timeval now_tv;
+        evutil_gettimeofday(&now_tv, NULL);
+
+        uint64_t arrival_gap = (now_tv.tv_sec - val->last_time.tv_sec) * 1000000
+                             + (now_tv.tv_usec - val->last_time.tv_usec);
+
+        double avg_distance_usec = (val->avg_distance_usec * (velocity_num - 1) + arrival_gap) / velocity_num;
+
+        evbuffer_add_printf(buf, "%9.3f ", (double)1000000.0/avg_distance_usec);
+
+    }
+
     if (val->timeout.ev_timeout.tv_sec == 0) {
-        evbuffer_add_printf(buf, "%-10s ", "N/A");
+        evbuffer_add_printf(buf, "%-8s ", "N/A");
     } else  {
-        evbuffer_add_printf(buf, "%-10d ", event_remaining_seconds(&val->timeout));
+        evbuffer_add_printf(buf, "%-8d ", event_remaining_seconds(&val->timeout));
     }
 
     if (val->hard_timeout.ev_timeout.tv_sec == 0) {
-        evbuffer_add_printf(buf, "%-10s ", "N/A");
+        evbuffer_add_printf(buf, "%-8s ", "N/A");
     } else  {
-        evbuffer_add_printf(buf, "%-10d ", event_remaining_seconds(&val->hard_timeout));
+        evbuffer_add_printf(buf, "%-8d ", event_remaining_seconds(&val->hard_timeout));
     }
 
     if (val->recent_block_timeout.ev_timeout.tv_sec == 0) {
-        evbuffer_add_printf(buf, "%-10s\n", "N/A");
+        evbuffer_add_printf(buf, "%-8s\n", "N/A");
     } else  {
-        evbuffer_add_printf(buf, "%-10d\n", event_remaining_seconds(&val->recent_block_timeout));
+        evbuffer_add_printf(buf, "%-8d\n", event_remaining_seconds(&val->recent_block_timeout));
     }
      
     return FALSE;
@@ -93,15 +112,15 @@ fill_current_connections(client_conn_t * conn, struct evbuffer *buf)
     if (conn == NULL)
         return;
 
-    evbuffer_add_printf(buf, "%-15s  %-5d  %-10lld  %15.15s  ",
+    evbuffer_add_printf(buf, "%-15s  %-5d  %-10"PRIu64"  %15.15s  ",
                         inet_ntoa(*(struct in_addr *) &conn->conn_addr),
                         ntohs(conn->conn_port),
                         conn->requests,
                         ctime(&conn->conn_time)+4);
 
-    if (conn->last_time) {
+    if (conn->last_time.tv_sec) {
         evbuffer_add_printf(buf, "%15.15s\n",
-                            ctime(&conn->last_time)+4);
+                            ctime(&conn->last_time.tv_sec)+4);
     } else {
         evbuffer_add_printf(buf, "%-15.15s\n", "N/A");
     }
@@ -141,7 +160,7 @@ fill_http_urihost(void *key, qstats_t * val, struct evbuffer *buf)
     /* Print up to 40 chars of the uri or host */
     colon = strchr(key, ':');
     if (colon)
-        evbuffer_add_printf(buf, "%.*s ", MIN(40, strlen(colon+1)), colon+1);
+        evbuffer_add_printf(buf, "%.*s ", (int)MIN(40, strlen(colon+1)), colon+1);
         
     evbuffer_add_printf(buf, "\n");
     return FALSE;
@@ -167,8 +186,8 @@ httpd_put_holddowns(struct evhttp_request *req, void *args)
 
     buf = evbuffer_new();
 
-    evbuffer_add_printf(buf, "%-15s %-15s %-10s %-10s %-10s %-10s\n",
-                        "Blocked IP", "Triggered By", "Count", "Soft (s)", "Hard (s)", "Recent (s)");
+    evbuffer_add_printf(buf, "%-15s %-15s %-10s %-9s %-8s %-8s %-8s\n",
+                        "Blocked IP", "Triggered By", "Count", "Velocity", "Soft", "Hard", "Recent");
 
     g_tree_foreach(current_blocks, (GTraverseFunc) fill_http_blocks, buf);
 
@@ -317,9 +336,9 @@ httpd_put_config(struct evhttp_request *req, void *args)
     evbuffer_add_printf(buf,
                         "%d addresses currently in hold-down (%u qps)\n",
                         g_tree_nnodes(current_blocks), qps_last);
-    evbuffer_add_printf(buf, "Total connections blocked: %llu\n",
+    evbuffer_add_printf(buf, "Total connections blocked: %"PRIu64"\n",
                         total_blocked_connections);
-    evbuffer_add_printf(buf, "Total queries recv: %llu\n", total_queries);
+    evbuffer_add_printf(buf, "Total queries recv: %"PRIu64"\n", total_queries);
     evbuffer_add_printf(buf, "DNS Query backlog: %d/%d\n", rbl_queries,
                         rbl_max_queries);
 
