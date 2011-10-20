@@ -119,6 +119,23 @@ fill_http_blocks_html(void *key, blocked_node_t * val, struct evbuffer *buf)
     evbuffer_add_printf(buf, "<tr><td>%s</td><td>%s</td><td>%d</td>",
                         blockedaddr, triggeraddr, val->count);
 
+    if (val->count == 0) {
+        evbuffer_add_printf(buf, "<td>%s</td> ", "N/A");
+    } else if (val->avg_distance_usec == 0) {
+        evbuffer_add_printf(buf, "<td>%s</td>", "Infinite");
+    } else {
+        struct timeval now_tv;
+        evutil_gettimeofday(&now_tv, NULL);
+
+        uint64_t arrival_gap = (now_tv.tv_sec - val->last_time.tv_sec) * 1000000
+                             + (now_tv.tv_usec - val->last_time.tv_usec);
+
+        double avg_distance_usec = (val->avg_distance_usec * (velocity_num - 1) + arrival_gap) / velocity_num;
+
+        evbuffer_add_printf(buf, "<td>%.3f</td>", (double)1000000.0/avg_distance_usec);
+
+    }
+
     if (val->timeout.ev_timeout.tv_sec == 0) {
         evbuffer_add_printf(buf, "<td>N/A</td>");
     } else  {
@@ -166,15 +183,15 @@ fill_current_connections_html(client_conn_t * conn, struct evbuffer *buf)
     if (conn == NULL)
         return;
 
-    evbuffer_add_printf(buf, "<tr><td>%s</td><td>%d</td><td>%lld</td><td>%15.15s</td>",
+    evbuffer_add_printf(buf, "<tr><td>%s</td><td>%d</td><td>%"PRIu64"</td><td>%15.15s</td>",
                         inet_ntoa(*(struct in_addr *) &conn->conn_addr),
                         ntohs(conn->conn_port),
                         conn->requests,
                         ctime(&conn->conn_time)+4);
 
-    if (conn->last_time) {
+    if (conn->last_time.tv_sec) {
         evbuffer_add_printf(buf, "<td>%15.15s</td></tr>",
-                            ctime(&conn->last_time)+4);
+                            ctime(&conn->last_time.tv_sec)+4);
     } else {
         evbuffer_add_printf(buf, "<td>N/A</td></tr>");
     }
@@ -255,7 +272,7 @@ fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf)
     /* ALW - Maybe need to escape this */
     colon = strchr(key, ':');
     if (colon)
-        evbuffer_add_printf(buf, "<td>%.*s</td></tr>", MIN(40, strlen(colon+1)), colon+1);
+        evbuffer_add_printf(buf, "<td>%.*s</td></tr>", (int)MIN(40, strlen(colon+1)), colon+1);
     else
         evbuffer_add_printf(buf, "<td></td></tr>");
         
@@ -394,13 +411,16 @@ httpd_put_config(struct evhttp_request *req, void *args)
     evbuffer_add_printf(buf, "  Bind addr:             %s\n", bind_addr);
     evbuffer_add_printf(buf, "  Bind port:             %d\n", bind_port);
     evbuffer_add_printf(buf, "  Client Idle Timeout:   %u\n", connection_timeout);
-    evbuffer_add_printf(buf, "  Soft block timeout:    %d\n\n", soft_block_timeout);
-    evbuffer_add_printf(buf, "  Hard block timeout:    %d\n\n", hard_block_timeout);
+    evbuffer_add_printf(buf, "  Soft block timeout:    %d\n", soft_block_timeout);
+    evbuffer_add_printf(buf, "  Hard block timeout:    %d\n", hard_block_timeout);
+    evbuffer_add_printf(buf, "  Velocity Number:       %d\n", velocity_num);
+    evbuffer_add_printf(buf, "\n");
 
     evbuffer_add_printf(buf, "  RBL Zone:              %s\n", rbl_zone?rbl_zone:"NULL");
     evbuffer_add_printf(buf, "  RBL Nameserver:        %s\n", rbl_ns?rbl_ns:"NULL");
     evbuffer_add_printf(buf, "  RBL Max Async Queries: %d\n", rbl_max_queries);
-    evbuffer_add_printf(buf, "  RBL NegCache Timeout:  %d\n\n", rbl_negcache_timeout);
+    evbuffer_add_printf(buf, "  RBL NegCache Timeout:  %d\n", rbl_negcache_timeout);
+    evbuffer_add_printf(buf, "\n");
 
     evbuffer_add_printf(buf,
                         "  Host block ratio: %d hits over %d seconds\n",
@@ -453,6 +473,7 @@ httpd_put_html_start(struct evbuffer *buf, char *title)
 {
     evbuffer_add_printf(buf, "<head><title>Thrashd - %s</title></head>", title);
     evbuffer_add_printf(buf, "<body>");
+    evbuffer_add_printf(buf, "<a href='/config'>Config</a>&nbsp;");
     evbuffer_add_printf(buf, "<a href='/connections.html'>Connections</a>&nbsp;");
     evbuffer_add_printf(buf, "<a href='/holddowns.html'>Holddowns</a>&nbsp;");
     evbuffer_add_printf(buf, "<a href='/addrs.html'>Addresses</a>&nbsp;");
@@ -481,7 +502,7 @@ httpd_put_holddowns_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Hold downs");
-    evbuffer_add_printf(buf, "<tr><th>Blocked IP</th><th>Triggered By</th><th>Count</th><th>Soft</th><th>Hard</th><th>Recent</th></tr>");
+    evbuffer_add_printf(buf, "<tr><th>Blocked IP</th><th>Triggered By</th><th>Count</th><th>Velocity</th><th>Soft</th><th>Hard</th><th>Recent</th></tr>");
     g_tree_foreach(current_blocks, (GTraverseFunc) fill_http_blocks_html, buf);
     httpd_put_html_end(buf, "Hold downs");
 
