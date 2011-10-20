@@ -60,6 +60,8 @@ block_ratio_t maximum_random_ratio;
 char           *drop_user;
 char           *drop_group;
 
+int             velocity_num;
+
 #ifdef WITH_BGP
 char           *bgp_sockname;
 int             bgp_sock;
@@ -166,6 +168,7 @@ globals_init(void)
     uris_ratio_table = NULL;
     logfile = stdout;
     syslog_facility = "local6";
+    velocity_num = 100;
 }
 
 int
@@ -395,6 +398,7 @@ block_addr(client_conn_t * conn, uint32_t addr)
 
     memset(bnode, 0, sizeof(blocked_node_t));
 
+    bnode->last_time = conn->last_time;
     bnode->saddr = addr;
     bnode->count = 1;
 
@@ -563,6 +567,7 @@ do_thresholding(client_conn_t * conn)
     int             blocked;
     struct timeval  tv;
     blocked_node_t *bnode;
+    uint64_t        arrival_gap;
 
     qps++;
     total_queries++;
@@ -598,6 +603,14 @@ do_thresholding(client_conn_t * conn)
          */
         bnode->count++;
         total_blocked_connections++;
+
+        /* Calculate distance */
+        arrival_gap = (conn->last_time.tv_sec - bnode->last_time.tv_sec) * 1000000
+                    + (conn->last_time.tv_usec - bnode->last_time.tv_usec);
+
+        bnode->avg_distance_usec = (bnode->avg_distance_usec * (velocity_num - 1) + arrival_gap)/velocity_num;
+
+        bnode->last_time = conn->last_time;
         return 1;
     }
 
@@ -1110,7 +1123,6 @@ client_read_type(int sock, short which, client_conn_t * conn)
 {
     int             ioret;
     uint8_t         type;
-    struct timeval  tv;
 
     reset_connection_timeout(conn, connection_timeout);
 
@@ -1134,8 +1146,7 @@ client_read_type(int sock, short which, client_conn_t * conn)
 
     type = *conn->data.buf;
     conn->type = type;
-    evutil_gettimeofday(&tv, NULL);
-    conn->last_time = tv.tv_sec;
+    evutil_gettimeofday(&conn->last_time, NULL);
     conn->requests++;
 
 #ifdef DEBUG
@@ -1327,6 +1338,7 @@ load_config(const char *file)
 	{"thrashd", "user", _c_f_t_str, &drop_user}, 
 	{"thrashd", "group", _c_f_t_str, &drop_group}, 
 	{"thrashd", "logfile", _c_f_t_file, &logfile},
+	{"thrashd", "velocity-num", _c_f_t_int, &velocity_num}, 
 #ifdef WITH_BGP
         {"thrashd", "bgp-sock", _c_f_t_str, &bgp_sockname},
 #endif

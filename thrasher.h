@@ -112,7 +112,7 @@ typedef struct query {
 typedef struct client_conn {
     uint64_t        requests;
     time_t          conn_time;
-    time_t          last_time;
+    struct timeval  last_time;
     uint32_t        conn_addr;
     uint16_t        conn_port;
     int             sock;
@@ -143,6 +143,8 @@ typedef struct qstats {
 } qstats_t;
 
 typedef struct blocked_node {
+    struct timeval  last_time;
+    double          avg_distance_usec;
     uint32_t        saddr;
     uint32_t        count;
     uint32_t        first_seen_addr;

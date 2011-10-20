@@ -4,7 +4,7 @@
 use strict;
 use IO::Socket;
 use LWP::Simple;
-use Test::More tests => 86;
+use Test::More tests => 92;
 use File::Temp qw/tempfile/;
 use Data::Dumper;
 
@@ -79,8 +79,8 @@ sub thrasherd_http_holddowns {
     foreach my $line (split(/\n/, $content)) {
         next if ($line =~ /Blocked/);
         chomp $line;
-        my ($ip, $trigger, $count, $timeout, $hardto, $recentto) = split(/ +/, $line);
-        $holddowns{$ip} = {trigger => $trigger, count => $count, timeout => $timeout, hardTimeout => $hardto, recentTimeout => $recentto};
+        my ($ip, $trigger, $count, $velocity, $timeout, $hardto, $recentto) = split(/ +/, $line);
+        $holddowns{$ip} = {trigger => $trigger, count => $count, velocity=> $velocity, timeout => $timeout, hardTimeout => $hardto, recentTimeout => $recentto};
     }
     return %holddowns;
 }
@@ -156,6 +156,22 @@ $main::thrasher = IO::Socket::INET->new('localhost:54320');
 die "Couldn't connect to thrashd on 'localhost:54320'" if (!$main::thrasher);
 $main::sockport = $main::thrasher->sockport();
 
+if ($ARGV[0] eq "--singletest") {
+    for (my $x = 0; $x < 300000; $x++) {
+                thrasher_query_v1("10.11.10.10", "host", "/");
+    }
+    exit 0;
+} elsif ($ARGV[0] eq "--spreadtest") {
+    for (my $x = 0; $x < 50; $x++) {
+        for (my $y = 0; $y < 50; $y++) {
+            for (my $z = 0; $z < 500; $z++) {
+                thrasher_query_v1("10.10.$x.$y", "host$x.$y", "/$x/$z");
+            }
+        }
+    }
+    exit 0;
+}
+
 # Check if things have cleared out, don't want failed tests
 my %addrs = thrasherd_http_addrs();
 my %uris = thrasherd_http_uris();
@@ -167,7 +183,6 @@ if (exists $addrs{"4.3.2.1"} || exists $uris{"4.3.2.1:/"}) {
 
 # Get config information for tests
 %main::config = thrasherd_http_config();
-print Dumper(\%main::config);
 is ($main::config{"URI block ratio"}, "10 hits over 11 seconds");
 is ($main::config{"Host block ratio"}, "12 hits over 13 seconds");
 is ($main::config{"ADDR block ratio"}, "14 hits over 15 seconds");
@@ -212,11 +227,13 @@ is (thrasher_query_v3(0, "10.10.10.10", "host3", "/uri3"), 1); #Bug: Test id=0 w
 my %holddowns = thrasherd_http_holddowns();
 is($holddowns{"1.2.3.4"}->{count}, 3);
 is($holddowns{"1.2.3.4"}->{trigger}, "255.255.255.255");
+is($holddowns{"1.2.3.4"}->{velocity}, "0.000");
 cmp_ok($holddowns{"1.2.3.4"}->{timeout}, '>=', $softtimeout-1);
 is($holddowns{"1.2.3.4"}->{hardTimeout}, "N/A");
 is($holddowns{"1.2.3.4"}->{recentTimeout}, "N/A");
 is($holddowns{"10.10.10.10"}->{count}, 4);
 is($holddowns{"10.10.10.10"}->{trigger}, "255.255.255.255");
+is($holddowns{"10.10.10.10"}->{velocity}, "0.000");
 cmp_ok($holddowns{"10.10.10.10"}->{timeout}, '>=', $softtimeout-1);
 is($holddowns{"10.10.10.10"}->{recentTimeout}, "N/A");
 is($holddowns{"4.3.2.1"}, undef);
@@ -274,11 +291,13 @@ for (my $i = 0; $i < 100; $i++) {
 %holddowns = thrasherd_http_holddowns();
 is($holddowns{"1.2.3.4"}->{count}, 286);
 is($holddowns{"1.2.3.4"}->{trigger}, "127.0.0.1");
+cmp_ok($holddowns{"1.2.3.4"}->{velocity}, '>=', 10000);
 cmp_ok($holddowns{"1.2.3.4"}->{timeout}, '>=', $softtimeout-1);
 cmp_ok($holddowns{"1.2.3.4"}->{hardTimeout}, '>=', $hardtimeout-1);
 is($holddowns{"1.2.3.4"}->{recentTimeout}, "N/A");
 is($holddowns{"10.10.10.10"}->{count}, 286);
 is($holddowns{"10.10.10.10"}->{trigger}, "127.0.0.1");
+cmp_ok($holddowns{"10.10.10.10"}->{velocity}, '>=', 10000);
 cmp_ok($holddowns{"10.10.10.10"}->{timeout}, '>=', $softtimeout-1);
 cmp_ok($holddowns{"10.10.10.10"}->{hardTimeout}, '>=', $hardtimeout-1);
 is($holddowns{"10.10.10.10"}->{recentTimeout}, "N/A");
@@ -300,6 +319,10 @@ is (thrasher_query_v3(3, "4.3.2.1", "host", "/"), 0);
 %holddowns = thrasherd_http_holddowns();
 cmp_ok($holddowns{"1.2.3.4"}->{timeout}, '>=', $holddowns{"1.2.3.4"}->{hardTimeout});
 cmp_ok($holddowns{"10.10.10.10"}->{timeout}, '>=', $holddowns{"10.10.10.10"}->{hardTimeout});
+
+# Make sure velocity is going down with no requests
+cmp_ok($holddowns{"1.2.3.4"}->{velocity}, '<=', 1000);
+cmp_ok($holddowns{"10.10.10.10"}->{velocity}, '<=', 1000);
 
 %addrs = thrasherd_http_addrs();
 is ($addrs{"1.2.3.4"}->{connections}, 6);
