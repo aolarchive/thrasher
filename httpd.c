@@ -269,11 +269,11 @@ fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf)
     }
 
     /* Print up to 40 chars of the uri or host */
-    /* ALW - Maybe need to escape this */
     colon = strchr(key, ':');
-    if (colon)
-        evbuffer_add_printf(buf, "<td>%.*s</td></tr>", (int)MIN(40, strlen(colon+1)), colon+1);
-    else
+    if (colon) {
+        gchar *escaped = g_markup_escape_text(colon+1, MIN(40, strlen(colon+1)));
+        evbuffer_add_printf(buf, "<td>%s</td></tr>", escaped);
+    } else
         evbuffer_add_printf(buf, "<td></td></tr>");
         
     return FALSE;
@@ -387,11 +387,48 @@ httpd_put_hosts(struct evhttp_request *req, void *args)
 }
 
 void
+httpd_put_html_start(struct evbuffer *buf, char *title, gboolean table)
+{
+    evbuffer_add_printf(buf, "<head><title>Thrashd - %s</title></head>", title);
+    evbuffer_add_printf(buf, "<body>");
+    evbuffer_add_printf(buf, "<a href='/config.html'>Config</a>&nbsp;");
+    evbuffer_add_printf(buf, "<a href='/connections.html'>Connections</a>&nbsp;");
+    evbuffer_add_printf(buf, "<a href='/holddowns.html'>Holddowns</a>&nbsp;");
+    evbuffer_add_printf(buf, "<a href='/addrs.html'>Addresses</a>&nbsp;");
+    evbuffer_add_printf(buf, "<a href='/hosts.html'>Hosts</a>&nbsp;");
+    evbuffer_add_printf(buf, "<a href='/uris.html'>URIs</a>&nbsp;");
+    evbuffer_add_printf(buf, "<hr>");
+
+    if (table) {
+        /* http://www.scriptiny.com/2008/11/javascript-table-sorter/ - Doesn't always sort right :) */
+        evbuffer_add_printf(buf, "<style type=\"text/css\">.sortable th{background:#444;text-align:left;color:#ccc;padding:4px 6px 6px;}.sortable td{background:#fff;border-bottom:1px solid #ccc;padding:2px 4px 4px;}.sortable .even td{background:#f2f2f2;}.sortable .odd td{background:#fff;}</style>\n");
+
+        evbuffer_add_printf(buf, "<script type=\"text/javascript\">\n");
+        evbuffer_add_printf(buf, "%s", "var table=function(){function b(a,b){a=a.value,b=b.value;var c=parseFloat(a.replace(/(\\$|\\,)/g,'')),d=parseFloat(b.replace(/(\\$|\\,)/g,''));if(!isNaN(c)&&!isNaN(d)){a=c,b=d}return a>b?1:a<b?-1:0}function a(a){this.n=a;this.t;this.b;this.r;this.d;this.p;this.w;this.a=[];this.l=0}a.prototype.init=function(a,b){this.t=document.getElementById(a);this.b=this.t.getElementsByTagName('tbody')[0];this.r=this.b.rows;var c=this.r.length;for(var d=0;d<c;d++){if(d==0){var e=this.r[d].cells;this.w=e.length;for(var f=0;f<this.w;f++){if(e[f].className!='nosort'){e[f].className='head';e[f].onclick=new Function(this.n+'.work(this.cellIndex)')}}}else{this.a[d-1]={};this.l++}}if(b!=null){var g=new Function(this.n+'.work('+b+')');g()}};a.prototype.work=function(a){this.b=this.t.getElementsByTagName('tbody')[0];this.r=this.b.rows;var c=this.r[0].cells[a],d;for(d=0;d<this.l;d++){this.a[d].o=d+1;var e=this.r[d+1].cells[a].firstChild;this.a[d].value=e!=null?e.nodeValue:''}for(d=0;d<this.w;d++){var f=this.r[0].cells[d];if(f.className!='nosort'){f.className='head'}}if(this.p==a){this.a.reverse();c.className=this.d?'asc':'desc';this.d=this.d?false:true}else{this.p=a;this.a.sort(b);c.className='asc';this.d=false}var g=document.createElement('tbody');g.appendChild(this.r[0]);for(d=0;d<this.l;d++){var h=this.r[this.a[d].o-1].cloneNode(true);g.appendChild(h);h.className=d%2==0?'even':'odd'}this.t.replaceChild(g,this.b)};return{sorter:a}}()");
+
+        evbuffer_add_printf(buf, "</script>\n<table border='0' class='sortable' id='sorter'>");
+    }
+}
+
+void
+httpd_put_html_end(struct evbuffer *buf)
+{
+    evbuffer_add_printf(buf, "</table>\n");
+    evbuffer_add_printf(buf, "<script type=\"text/javascript\"> var sorter=new table.sorter(\"sorter\"); sorter.init(\"sorter\",1); </script>");
+    evbuffer_add_printf(buf, "</body>");
+}
+
+void
 httpd_put_config(struct evhttp_request *req, void *args)
 {
     struct evbuffer *buf;
 
     buf = evbuffer_new();
+
+    if (args) {
+        httpd_put_html_start(buf, "Config", FALSE);
+        evbuffer_add_printf(buf, "<pre>\n");
+    }
 
     evbuffer_add_printf(buf, "Thrashd version: %s (%s) [%s]\n", VERSION,
                         VERSION_NAME, process_name);
@@ -463,36 +500,14 @@ httpd_put_config(struct evhttp_request *req, void *args)
         g_hash_table_foreach(uris_ratio_table, (GHFunc) fill_http_uriratio, buf);
     }
 
-    evhttp_add_header(req->output_headers, "Content-Type", "text/plain");
+    if (args) {
+        evbuffer_add_printf(buf, "</pre></body>\n");
+        evhttp_add_header(req->output_headers, "Content-Type", "text/html");
+    } else 
+        evhttp_add_header(req->output_headers, "Content-Type", "text/plain");
+
     evhttp_send_reply(req, HTTP_OK, "OK", buf);
     evbuffer_free(buf);
-}
-
-void
-httpd_put_html_start(struct evbuffer *buf, char *title)
-{
-    evbuffer_add_printf(buf, "<head><title>Thrashd - %s</title></head>", title);
-    evbuffer_add_printf(buf, "<body>");
-    evbuffer_add_printf(buf, "<a href='/config'>Config</a>&nbsp;");
-    evbuffer_add_printf(buf, "<a href='/connections.html'>Connections</a>&nbsp;");
-    evbuffer_add_printf(buf, "<a href='/holddowns.html'>Holddowns</a>&nbsp;");
-    evbuffer_add_printf(buf, "<a href='/addrs.html'>Addresses</a>&nbsp;");
-    evbuffer_add_printf(buf, "<a href='/hosts.html'>Hosts</a>&nbsp;");
-    evbuffer_add_printf(buf, "<a href='/uris.html'>URIs</a>&nbsp;");
-    evbuffer_add_printf(buf, "<hr>");
-    /* http://www.scriptiny.com/2008/11/javascript-table-sorter/ - Doesn't always sort right :) */
-    evbuffer_add_printf(buf, "<script type=\"text/javascript\">\n");
-    evbuffer_add_printf(buf, "%s", "var table=function(){function b(a,b){a=a.value,b=b.value;var c=parseFloat(a.replace(/(\\$|\\,)/g,'')),d=parseFloat(b.replace(/(\\$|\\,)/g,''));if(!isNaN(c)&&!isNaN(d)){a=c,b=d}return a>b?1:a<b?-1:0}function a(a){this.n=a;this.t;this.b;this.r;this.d;this.p;this.w;this.a=[];this.l=0}a.prototype.init=function(a,b){this.t=document.getElementById(a);this.b=this.t.getElementsByTagName('tbody')[0];this.r=this.b.rows;var c=this.r.length;for(var d=0;d<c;d++){if(d==0){var e=this.r[d].cells;this.w=e.length;for(var f=0;f<this.w;f++){if(e[f].className!='nosort'){e[f].className='head';e[f].onclick=new Function(this.n+'.work(this.cellIndex)')}}}else{this.a[d-1]={};this.l++}}if(b!=null){var g=new Function(this.n+'.work('+b+')');g()}};a.prototype.work=function(a){this.b=this.t.getElementsByTagName('tbody')[0];this.r=this.b.rows;var c=this.r[0].cells[a],d;for(d=0;d<this.l;d++){this.a[d].o=d+1;var e=this.r[d+1].cells[a].firstChild;this.a[d].value=e!=null?e.nodeValue:''}for(d=0;d<this.w;d++){var f=this.r[0].cells[d];if(f.className!='nosort'){f.className='head'}}if(this.p==a){this.a.reverse();c.className=this.d?'asc':'desc';this.d=this.d?false:true}else{this.p=a;this.a.sort(b);c.className='asc';this.d=false}var g=document.createElement('tbody');g.appendChild(this.r[0]);for(d=0;d<this.l;d++){var h=this.r[this.a[d].o-1].cloneNode(true);g.appendChild(h);h.className=d%2==0?'even':'odd'}this.t.replaceChild(g,this.b)};return{sorter:a}}()");
-
-    evbuffer_add_printf(buf, "</script>\n<table border='0' class='sortable' id='sorter'>");
-}
-
-void
-httpd_put_html_end(struct evbuffer *buf, char *summary)
-{
-    evbuffer_add_printf(buf, "</table>\n");
-    evbuffer_add_printf(buf, "<script type=\"text/javascript\"> var sorter=new table.sorter(\"sorter\"); sorter.init(\"sorter\",1); </script>");
-    evbuffer_add_printf(buf, "</body>");
 }
 
 void
@@ -501,10 +516,10 @@ httpd_put_holddowns_html (struct evhttp_request *req, void *arg)
     struct evbuffer *buf;
 
     buf = evbuffer_new();
-    httpd_put_html_start(buf, "Hold downs");
+    httpd_put_html_start(buf, "Hold downs", TRUE);
     evbuffer_add_printf(buf, "<tr><th>Blocked IP</th><th>Triggered By</th><th>Count</th><th>Velocity</th><th>Soft</th><th>Hard</th><th>Recent</th></tr>");
     g_tree_foreach(current_blocks, (GTraverseFunc) fill_http_blocks_html, buf);
-    httpd_put_html_end(buf, "Hold downs");
+    httpd_put_html_end(buf);
 
     evhttp_add_header(req->output_headers, "Content-Type", "text/html");
     evhttp_send_reply(req, HTTP_OK, "OK", buf);
@@ -519,10 +534,10 @@ httpd_put_connections_html (struct evhttp_request *req, void *arg)
     struct evbuffer *buf;
 
     buf = evbuffer_new();
-    httpd_put_html_start(buf, "Connections");
+    httpd_put_html_start(buf, "Connections", TRUE);
     evbuffer_add_printf(buf, "<tr><th>Address</th><th>Port</th><th>Requests</th><th>Connection Date</th><th>Last Date</th></tr>");
     g_slist_foreach(current_connections, (GFunc) fill_current_connections_html, buf);
-    httpd_put_html_end(buf, "Connections");
+    httpd_put_html_end(buf);
 
     evhttp_add_header(req->output_headers, "Content-Type", "text/html");
     evhttp_send_reply(req, HTTP_OK, "OK", buf);
@@ -535,10 +550,10 @@ httpd_put_addrs_html (struct evhttp_request *req, void *arg)
     struct evbuffer *buf;
 
     buf = evbuffer_new();
-    httpd_put_html_start(buf, "Addresses");
+    httpd_put_html_start(buf, "Addresses", TRUE);
     evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th>");
     g_hash_table_foreach(addr_table, (GHFunc) fill_http_addr_html, buf);
-    httpd_put_html_end(buf, "Addresses");
+    httpd_put_html_end(buf);
 
     evhttp_add_header(req->output_headers, "Content-Type", "text/html");
     evhttp_send_reply(req, HTTP_OK, "OK", buf);
@@ -551,10 +566,10 @@ httpd_put_hosts_html (struct evhttp_request *req, void *arg)
     struct evbuffer *buf;
 
     buf = evbuffer_new();
-    httpd_put_html_start(buf, "Hosts");
+    httpd_put_html_start(buf, "Hosts", TRUE);
     evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>Host (40 char max)</th></tr>");
     g_hash_table_foreach(uri_table, (GHFunc) fill_http_urihost_html, buf);
-    httpd_put_html_end(buf, "Hosts");
+    httpd_put_html_end(buf);
 
     evhttp_add_header(req->output_headers, "Content-Type", "text/html");
     evhttp_send_reply(req, HTTP_OK, "OK", buf);
@@ -567,10 +582,10 @@ httpd_put_uris_html (struct evhttp_request *req, void *arg)
     struct evbuffer *buf;
 
     buf = evbuffer_new();
-    httpd_put_html_start(buf, "URIs");
+    httpd_put_html_start(buf, "URIs", TRUE);
     evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>URI (40 char max)</th></tr>");
     g_hash_table_foreach(uri_table, (GHFunc) fill_http_urihost_html, buf);
-    httpd_put_html_end(buf, "URIs");
+    httpd_put_html_end(buf);
 
     evhttp_add_header(req->output_headers, "Content-Type", "text/html");
     evhttp_send_reply(req, HTTP_OK, "OK", buf);
@@ -604,6 +619,7 @@ webserver_init(void)
     evhttp_set_cb(httpd, "/holddowns", httpd_put_holddowns, NULL);
     evhttp_set_cb(httpd, "/holddowns.html", httpd_put_holddowns_html, NULL);
     evhttp_set_cb(httpd, "/config", httpd_put_config, NULL);
+    evhttp_set_cb(httpd, "/config.html", httpd_put_config, (void *)1);
     evhttp_set_cb(httpd, "/connections", httpd_put_connections, NULL);
     evhttp_set_cb(httpd, "/connections.html", httpd_put_connections_html, NULL);
     evhttp_set_cb(httpd, "/addrs", httpd_put_addrs, NULL);
