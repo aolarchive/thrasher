@@ -273,6 +273,7 @@ fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf)
     if (colon) {
         gchar *escaped = g_markup_escape_text(colon+1, MIN(40, strlen(colon+1)));
         evbuffer_add_printf(buf, "<td>%s</td></tr>", escaped);
+        g_free(escaped);
     } else
         evbuffer_add_printf(buf, "<td></td></tr>");
         
