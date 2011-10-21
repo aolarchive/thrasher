@@ -1,3 +1,8 @@
+1.0r23 changes
+    * Added support for tracking simple velocity on holddowns
+
+    * Added /*.html interface to all the urls
+
 1.0r22 changes
     * Added support for different uri-ratios per exact match uri. This
       is defined in a [uri-ratios] config section using 
