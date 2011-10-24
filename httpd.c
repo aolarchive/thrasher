@@ -157,7 +157,7 @@ fill_http_blocks_html(void *key, blocked_node_t * val, struct evbuffer *buf)
         evbuffer_add_printf(buf, "<td>%d</td>", event_remaining_seconds(&val->recent_block_timeout));
     }
 
-    evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeHolddown&key=%d\">Remove</a></td>",*(uint32_t *)key);
+    evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeHolddown&key=%d\">Unblock</a></td>",*(uint32_t *)key);
     evbuffer_add_printf(buf, "</tr>");
      
     return FALSE;
@@ -227,9 +227,9 @@ fill_http_addr_html(void *key, qstats_t * val, struct evbuffer *buf)
                         val->connections);
 
     if (val->timeout.ev_timeout.tv_sec == 0) {
-        evbuffer_add_printf(buf, "<td>N/A</td></tr>");
+        evbuffer_add_printf(buf, "<td>N/A</td>");
     } else  {
-        evbuffer_add_printf(buf, "<td>%d</td></tr>", event_remaining_seconds(&val->timeout));
+        evbuffer_add_printf(buf, "<td>%d</td>", event_remaining_seconds(&val->timeout));
     }
 
     evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeAddr&key=%s\">Remove</a> <a href=\"/action?action=blockAddr&key=%s\">Block</a></td>", (char*)key, (char*)key);
