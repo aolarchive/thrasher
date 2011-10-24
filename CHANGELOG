@@ -1,3 +1,10 @@
+1.0r24 changes
+    * Fixed velocity bug with rbl queries
+
+    * Added http write actions
+
+    * Added http-password to control access to http write actions
+
 1.0r23 changes
     * Added support for tracking simple velocity on holddowns
 
