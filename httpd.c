@@ -157,7 +157,8 @@ fill_http_blocks_html(void *key, blocked_node_t * val, struct evbuffer *buf)
         evbuffer_add_printf(buf, "<td>%d</td>", event_remaining_seconds(&val->recent_block_timeout));
     }
 
-    evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeHolddown&key=%d\">Unblock</a></td>",*(uint32_t *)key);
+    if (http_password)
+        evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeHolddown&key=%d\">Unblock</a></td>",*(uint32_t *)key);
     evbuffer_add_printf(buf, "</tr>");
      
     return FALSE;
@@ -232,7 +233,8 @@ fill_http_addr_html(void *key, qstats_t * val, struct evbuffer *buf)
         evbuffer_add_printf(buf, "<td>%d</td>", event_remaining_seconds(&val->timeout));
     }
 
-    evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeAddr&key=%s\">Remove</a> <a href=\"/action?action=blockAddr&key=%s\">Block</a></td>", (char*)key, (char*)key);
+    if (http_password)
+        evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeAddr&key=%s\">Remove</a> <a href=\"/action?action=blockAddr&key=%s\">Block</a></td>", (char*)key, (char*)key);
     evbuffer_add_printf(buf, "</tr>");
 
     return FALSE;
@@ -287,9 +289,11 @@ fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf, char *ty
         evbuffer_add_printf(buf, "<td></td>");
 
 
-    char *ukey = g_uri_escape_string(key, 0, 0);
-    evbuffer_add_printf(buf, "<td><a href=\"/action?action=remove%s&key=%s\">Remove</a> <a href=\"/action?action=block%s&key=%s\">Block</a></td>", type, (char*)ukey, type, (char*)ukey);
-    g_free(ukey);
+    if (http_password) {
+        char *ukey = g_uri_escape_string(key, 0, 0);
+        evbuffer_add_printf(buf, "<td><a href=\"/action?action=remove%s&key=%s\">Remove</a> <a href=\"/action?action=block%s&key=%s\">Block</a></td>", type, (char*)ukey, type, (char*)ukey);
+        g_free(ukey);
+    }
 
     evbuffer_add_printf(buf, "</tr>");
         
@@ -312,7 +316,7 @@ gboolean
 fill_http_uriratio(void *key, block_ratio_t * val, struct evbuffer *buf)
 {
     evbuffer_add_printf(buf,
-                        "  %30.30s:  %d hits over %d seconds\n",
+                        "  %50s:  %d hits over %d seconds\n",
                         (char*)key,
                         val->num_connections, val->timelimit);
 
@@ -546,7 +550,7 @@ httpd_put_holddowns_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Hold downs", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Blocked IP</th><th>Triggered By</th><th>Count</th><th>Velocity</th><th>Soft</th><th>Hard</th><th>Recent</th><th>Actions</th></tr>");
+    evbuffer_add_printf(buf, "<tr><th>Blocked IP</th><th>Triggered By</th><th>Count</th><th>Velocity</th><th>Soft</th><th>Hard</th><th>Recent</th>%s</tr>", (http_password?"<th>Actions</th>":""));
     g_tree_foreach(current_blocks, (GTraverseFunc) fill_http_blocks_html, buf);
     httpd_put_html_end(buf);
 
@@ -580,7 +584,7 @@ httpd_put_addrs_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Addresses", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>Actions</th></tr>");
+    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th>%s</tr>", (http_password?"<th>Actions</th>":""));
     g_hash_table_foreach(addr_table, (GHFunc) fill_http_addr_html, buf);
     httpd_put_html_end(buf);
 
@@ -596,7 +600,7 @@ httpd_put_hosts_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Hosts", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>Host (80 char max)</th><th>Actions</th></tr>");
+    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>Host (80 char max)</th>%s</tr>", (http_password?"<th>Actions</th>":""));
     g_hash_table_foreach(host_table, (GHFunc) fill_http_host_html, buf);
     httpd_put_html_end(buf);
 
@@ -612,7 +616,7 @@ httpd_put_uris_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "URIs", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>URI (80 char max)</th><th>Actions</th></tr>");
+    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>URI (80 char max)</th>%s</tr>", (http_password?"<th>Actions</th>":""));
     g_hash_table_foreach(uri_table, (GHFunc) fill_http_uri_html, buf);
     httpd_put_html_end(buf);
 
