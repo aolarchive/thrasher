@@ -649,7 +649,7 @@ httpd_action(struct evhttp_request *req, void *arg)
     gsize   decoded_len;
     guchar *decoded = g_base64_decode(authorization+6, &decoded_len);
     char *colon = strchr((char*)decoded, ':');
-    if (!colon || strcmp(colon+1, http_password) != 0) {
+    if (!colon || decoded[0] == ':' || strcmp(colon+1, http_password) != 0) {
         g_free(decoded);
         evhttp_add_header(req->output_headers, "WWW-Authenticate", "Basic realm=\"Thrashd\"");
         evhttp_send_reply(req, 401, "Authorization Required", buf);
