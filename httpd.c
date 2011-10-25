@@ -670,6 +670,9 @@ httpd_action(struct evhttp_request *req, void *arg)
         return;
     }
 
+    LOG(logfile, "webaction user:%.*s action:%s key:%s", 
+        (int)((char *)colon-(char *)decoded), decoded, action, key);
+
     if (strcmp(action, "removeHolddown") == 0) {
         redir = "/holddowns.html";
         uint32_t        saddr = atoi(key);
