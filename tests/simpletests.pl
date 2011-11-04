@@ -105,9 +105,10 @@ sub thrasherd_http_connections {
     foreach my $line (split(/\n/, $content)) {
         next if ($line !~ /^\d/);
         chomp $line;
-        my ($ip, $port, $requests, $conn, $last) = split(/  +/, $line);
+        my ($ip, $port, $requests, $conn, $last) = ($line =~ /^([\d\.]+) +(\d+) +(\d+) +(\w+ + \d+ [\d:]+) +(N.A|\w+ + \d+ [\d:]+)/);
         $connections{"$ip:$port"} = {requests => $requests, connDate => $conn, lastDate => $last};
     }
+    #print Dumper(\%connections);
     return %connections;
 }
 
