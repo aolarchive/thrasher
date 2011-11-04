@@ -1767,7 +1767,7 @@ save_data_init(void)
 {
     struct timeval  tv;
 
-    tv.tv_sec = 15*60;
+    tv.tv_sec = 5*60;
     tv.tv_usec = 0;
 
     evtimer_set(&backup_event, (void *) save_data_cb, NULL);
