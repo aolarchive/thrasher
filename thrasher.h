@@ -192,6 +192,7 @@ void expire_stats_node(int sock, short which, qstats_t * stat_node);
 blocked_node_t *block_addr(client_conn_t * conn, uint32_t addr);
 int update_thresholds(client_conn_t * conn, char *key, stat_type_t type, block_ratio_t *ratio);
 int do_thresholding(client_conn_t * conn);
+char *save_data();
 
 void client_process_data(int sock, short which, client_conn_t * conn);
 void client_read_payload(int sock, short which, client_conn_t * conn);
@@ -217,3 +218,5 @@ void qps_init(void);
 void qps_reset(int sock, int which, void *args);
 void syslog_init(char *facility);
 void daemonize(const char *path);
+
+uint32_t event_remaining_seconds(struct event *ev);

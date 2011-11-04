@@ -4,6 +4,7 @@
 #include "thrasher.h"
 #include "version.h"
 #include "httpd.h"
+#include "filemac.h"
 
 #define MAX_URI_SIZE  1500
 #define MAX_HOST_SIZE 1500
@@ -14,7 +15,7 @@
 
 char           *process_name;
 uint32_t        uri_check;
-uint32_t        site_check;
+uint32_t        host_check;
 uint32_t        addr_check;
 char           *bind_addr;
 uint16_t        bind_port;
@@ -53,6 +54,8 @@ GHashTable     *uris_ratio_table;
 GRand          *randdata;
 FILE           *logfile;
 char           *http_password;
+char           *backup_file;
+struct event    backup_event;
 
 uint32_t recently_blocked_timeout;
 block_ratio_t minimum_random_ratio;
@@ -126,7 +129,7 @@ globals_init(void)
 {
     connection_timeout = 0;
     uri_check = 1;
-    site_check = 1;
+    host_check = 1;
     addr_check = 1;
     bind_addr = "0.0.0.0";
     bind_port = 1972;
@@ -539,8 +542,8 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type, block_ratio
         triggeraddr =
             strdup(inet_ntoa(*(struct in_addr *) &bnode->first_seen_addr));
 
-        LOG(logfile, "type %d holding down address %s triggered by %s (%d >= %d)",
-            type, blockedaddr, triggeraddr, stats->connections, ratio->num_connections);
+        LOG(logfile, "type %d holding down address %s triggered by %s (%d >= %d) key %s",
+            type, blockedaddr, triggeraddr, stats->connections, ratio->num_connections, key);
 
         free(blockedaddr);
         free(triggeraddr);
@@ -736,7 +739,7 @@ do_thresholding(client_conn_t * conn)
                 blocked = 1;
         }
 
-        if (site_check
+        if (host_check
             && update_thresholds(conn, hkey, stat_type_host, &host_ratio) == 1)
             blocked = 1;
 
@@ -1315,7 +1318,7 @@ load_config(const char *file)
         {"thrashd", "conn-timeout", _c_f_t_int, &connection_timeout}, 
 	{"thrashd", "name", _c_f_t_str, &process_name}, 
 	{"thrashd", "uri-check", _c_f_t_int, &uri_check}, 
-	{"thrashd", "host-check", _c_f_t_int, &site_check}, 
+	{"thrashd", "host-check", _c_f_t_int, &host_check}, 
 	{"thrashd", "addr-check", _c_f_t_int, &addr_check}, 
 	{"thrashd", "http-listen-port", _c_f_t_int, &server_port}, 
 	{"thrashd", "listen-port", _c_f_t_int, &bind_port}, 
@@ -1345,6 +1348,7 @@ load_config(const char *file)
 	{"thrashd", "logfile", _c_f_t_file, &logfile},
 	{"thrashd", "velocity-num", _c_f_t_int, &velocity_num}, 
 	{"thrashd", "http-password", _c_f_t_str, &http_password}, 
+	{"thrashd", "backup-file", _c_f_t_str, &backup_file}, 
 #ifdef WITH_BGP
         {"thrashd", "bgp-sock", _c_f_t_str, &bgp_sockname},
 #endif
@@ -1477,10 +1481,9 @@ load_config(const char *file)
 	}
     }
 
-
-
     g_key_file_free(config_file);
 }
+
 
 int
 parse_args(int argc, char **argv)
@@ -1672,7 +1675,7 @@ log_startup(void)
         LOG(logfile, "URI Block:        DISABLED%s", "");
     }
 
-    if (site_check) {
+    if (host_check) {
         LOG(logfile, "Host Block Ratio: %u connections within %u seconds",
             host_ratio.num_connections, host_ratio.timelimit);
     } else {
@@ -1703,6 +1706,158 @@ log_startup(void)
     }
 
 
+}
+
+
+gboolean save_data_current(gpointer key, blocked_node_t *bn, FILE *file)
+{
+    FEXPORT_u32(file, bn->saddr);
+    FEXPORT_u32(file, bn->count);
+    FEXPORT_u32(file, bn->last_time.tv_sec);
+    FEXPORT_u32(file, bn->first_seen_addr);
+    FEXPORT_u16(file, bn->ratio.num_connections);
+    FEXPORT_u16(file, bn->ratio.timelimit);
+    if (bn->timeout.ev_timeout.tv_sec == 0) {
+        FEXPORT_u32(file, 0);
+    } else {
+        FEXPORT_u32(file, event_remaining_seconds(&bn->timeout));
+    }
+    if (bn->hard_timeout.ev_timeout.tv_sec == 0) {
+        FEXPORT_u32(file, 0);
+    } else {
+        FEXPORT_u32(file, event_remaining_seconds(&bn->hard_timeout));
+    }
+    return FALSE;
+}
+
+
+char *
+save_data ()
+{
+    FILE            *file;
+    struct timeval  current_time;
+    char static result[1000];
+
+    if (!backup_file)
+        return "backup-file not defined in config file";
+
+    evutil_gettimeofday(&current_time, NULL);
+
+    if (!(file = fopen(backup_file, "w"))) {
+        LOG(logfile, "ERROR: Backup file couldn't be openned: %s", strerror(errno));
+        snprintf(result, sizeof(result), "Backup file couldn't be openned: %s", strerror(errno));
+        return result;
+    }
+    FEXPORT_str(file, "thrasher");
+    FEXPORT_u16(file, 1); /* version */
+    FEXPORT_u32(file, current_time.tv_sec);
+
+    FEXPORT_u32(file, g_tree_nnodes(current_blocks));
+    g_tree_foreach(current_blocks, (GTraverseFunc)save_data_current, file);
+
+    LOG(logfile, "SUCCESS: Saving backup data%s", "");
+    fclose(file);
+    return 0;
+}
+
+void save_data_cb(int sock, int which, void *args);
+
+void
+save_data_init(void)
+{
+    struct timeval  tv;
+
+    tv.tv_sec = 15*60;
+    tv.tv_usec = 0;
+
+    evtimer_set(&backup_event, (void *) save_data_cb, NULL);
+    evtimer_add(&backup_event, &tv);
+}
+
+void
+save_data_cb(int sock, int which, void *args)
+{
+    save_data();
+    save_data_init();
+}
+
+void
+load_data ()
+{
+    FILE          *file;
+    char          *str;
+    int            len;
+    uint16_t       version;
+    uint32_t       file_time;
+    uint32_t       time_diff;
+    struct timeval current_time;
+    uint32_t       num;
+
+    save_data_init();
+
+    if (!(file = fopen(backup_file, "r"))) {
+        LOG(file, "ERROR: Backup file couldn't be openned: %s", strerror(errno));
+        return;
+    }
+
+    evutil_gettimeofday(&current_time, NULL);
+
+    FIMPORT_str(file, str, len);
+    FIMPORT_u16(file, version);
+    if (version != 1 || len != 8 || memcmp(str, "thrasher", len) != 0) {
+        fclose(file);
+        LOG(file, "ERROR: Backup file corrupt%s", "");
+    }
+
+    FIMPORT_u32(file, file_time);
+    time_diff = current_time.tv_sec - file_time;
+
+    FIMPORT_u32(file, num);
+    while (!feof(file) && num > 0) {
+        uint32_t        soft_timeout, hard_timeout;
+        blocked_node_t *bn;
+        struct timeval  tv;
+
+        if (!(bn = malloc(sizeof(blocked_node_t)))) {
+            LOG(logfile, "Out of memory: %s", strerror(errno));
+            exit(1);
+        }
+        memset(bn, 0, sizeof(blocked_node_t));
+
+        FIMPORT_u32(file, bn->saddr);
+        FIMPORT_u32(file, bn->count);
+        FIMPORT_u32(file, bn->last_time.tv_sec);
+        FIMPORT_u32(file, bn->first_seen_addr);
+        FIMPORT_u16(file, bn->ratio.num_connections);
+        FIMPORT_u16(file, bn->ratio.timelimit);
+        FIMPORT_u32(file, soft_timeout);
+        FIMPORT_u32(file, hard_timeout);
+
+        if (feof(file)) {
+            free(bn);
+            break;
+        }
+
+        g_tree_insert(current_blocks, &bn->saddr, bn);
+
+        tv.tv_sec = soft_timeout - time_diff;
+        tv.tv_usec = 0;
+
+        evtimer_set(&bn->timeout, (void *) expire_bnode, bn);
+        evtimer_add(&bn->timeout, &tv);
+
+        if (hard_timeout > 0) {
+            tv.tv_sec  = hard_timeout - time_diff;
+            tv.tv_usec = 0;
+
+            evtimer_set(&bn->hard_timeout, (void *)expire_hard_bnode, bn);
+            evtimer_add(&bn->hard_timeout, &tv);
+        }
+
+        num--;
+    }
+
+    fclose(file);
 }
 
 #ifdef ARCH_LINUX
@@ -1830,6 +1985,9 @@ main(int argc, char **argv)
 #endif
     log_startup();
     drop_perms();
+
+    if (backup_file)
+        load_data();
 
     if (rundaemon)
         daemonize("/tmp");
