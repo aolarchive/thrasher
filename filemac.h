@@ -34,6 +34,7 @@ do {                                                                  \
 #define FIMPORT_str(file,x,len)                                       \
 do {                                                                  \
         FIMPORT_u16(file,len);                                        \
-        x = malloc(len);                                              \
-        fread(x, len, 1, file);                                      \
+        x = malloc(len+1);                                            \
+        fread(x, len, 1, file);                                       \
+        x[len] = 0;                                                   \
 } while (0)

@@ -460,7 +460,7 @@ httpd_put_config(struct evhttp_request *req, void *args)
 
     if (args) {
         httpd_put_html_start(buf, "Config", FALSE);
-        evbuffer_add_printf(buf, "<a href='/editconfig.html'>Update Config</a>");
+        evbuffer_add_printf(buf, "<td><a href=\"/action?action=reloadconfig&key=reloadconfig\">Reload Config</a></td>");
         evbuffer_add_printf(buf, "<pre>\n");
     }
 
@@ -540,50 +540,6 @@ httpd_put_config(struct evhttp_request *req, void *args)
     } else 
         evhttp_add_header(req->output_headers, "Content-Type", "text/plain");
 
-    evhttp_send_reply(req, HTTP_OK, "OK", buf);
-    evbuffer_free(buf);
-}
-
-void
-httpd_put_editconfig(struct evhttp_request *req, void *args)
-{
-    struct evbuffer *buf;
-
-    buf = evbuffer_new();
-    httpd_put_html_start(buf, "Edit Config", FALSE);
-
-    evbuffer_add_printf(buf, "<p>This does <b>NOT</b> save changes to the config file.</p>");
-    evbuffer_add_printf(buf, "<h2>General Config<h2>");
-    evbuffer_add_printf(buf, "<form action=\"/action\"><table>");
-    evbuffer_add_printf(buf, "<tr><td>URI Check Enabled</td><td><input type=checkbox name=\"uri_check\" %s></td></tr>", uri_check?"checked":"");
-    evbuffer_add_printf(buf, "<tr><td>Host Check Enabled</td><td><input type=checkbox name=\"host_check\" %s></td></tr>", host_check?"checked":"");
-    evbuffer_add_printf(buf, "<tr><td>Addr Check Enabled</td><td><input type=checkbox name=\"addr_check\" %s></td></tr>", addr_check?"checked":"");
-    evbuffer_add_printf(buf, "<tr><td></td></tr>");
-
-    evbuffer_add_printf(buf, "<tr><td>Connection Timeout</td><td><input name=\"connection_to\" value=\"%d\"></td></tr>", connection_timeout);
-    evbuffer_add_printf(buf, "<tr><td>Soft Block Timeout</td><td><input name=\"soft_to\" value=\"%d\"></td></tr>", soft_block_timeout);
-    evbuffer_add_printf(buf, "<tr><td>Hard Block Timeout</td><td><input name=\"hard_to\" value=\"%d\"></td></tr>", hard_block_timeout);
-    evbuffer_add_printf(buf, "<tr><td>Velocity Scope</td><td><input name=\"velocity\" value=\"%d\"></td></tr>", velocity_num);
-    evbuffer_add_printf(buf, "<tr><td></td></tr>");
-
-    evbuffer_add_printf(buf, "<tr><td>URI Ratio</td><td><input name=\"uri_hit\" value=\"%d\"> over <input name=\"uri_sec\" value=\"%d\"></td></tr>", uri_ratio.num_connections, uri_ratio.timelimit);
-    evbuffer_add_printf(buf, "<tr><td>Host Ratio</td><td><input name=\"host_hit\" value=\"%d\"> over <input name=\"host_sec\" value=\"%d\"></td></tr>", host_ratio.num_connections, host_ratio.timelimit);
-    evbuffer_add_printf(buf, "<tr><td>Addr Ratio</td><td><input name=\"addr_hit\" value=\"%d\"> over <input name=\"addr_sec\" value=\"%d\"></td></tr>", addr_ratio.num_connections, addr_ratio.timelimit);
-
-    evbuffer_add_printf(buf, "</table>");
-    evbuffer_add_printf(buf, "<input type=\"hidden\" name=\"key\" value=\"1\">");
-    evbuffer_add_printf(buf, "<input type=\"hidden\" name=\"action\" value=\"saveconfig\">");
-    evbuffer_add_printf(buf, "<input type=\"submit\" value=\"Save\"></form>");
-
-    evbuffer_add_printf(buf, "<h2>Add/Update URI Ratios<h2>");
-    evbuffer_add_printf(buf, "<form action=\"/action\"><table>");
-    evbuffer_add_printf(buf, "<tr><td>URL</td><td><input name=\"key\" size=50></td></tr>");
-    evbuffer_add_printf(buf, "<tr><td>Ratio</td><td><input name=\"hit\" value=\"%d\"> over <input name=\"sec\" value=\"%d\"></td></tr>", uri_ratio.num_connections, uri_ratio.timelimit);
-    evbuffer_add_printf(buf, "</table>");
-    evbuffer_add_printf(buf, "<input type=\"hidden\" name=\"action\" value=\"updateurl\">");
-    evbuffer_add_printf(buf, "<input type=\"submit\" value=\"Save\"></form>");
-
-    evhttp_add_header(req->output_headers, "Content-Type", "text/html");
     evhttp_send_reply(req, HTTP_OK, "OK", buf);
     evbuffer_free(buf);
 }
@@ -772,36 +728,10 @@ httpd_action(struct evhttp_request *req, void *arg)
         if ((v = (char *)evhttp_find_header(&args, "sec")))
             request_uri_ratio->timelimit = atoi(v);
 
-    } else if (strcmp(action, "saveconfig") == 0) {
+    } else if (strcmp(action, "reloadconfig") == 0) {
         redir = "/config.html";
-        uri_check = (v = (char *)evhttp_find_header(&args, "uri_check")) && (strcmp(v, "on") == 0);
-        host_check = (v = (char *)evhttp_find_header(&args, "host_check")) && (strcmp(v, "on") == 0);
-        addr_check = (v = (char *)evhttp_find_header(&args, "addr_check")) && (strcmp(v, "on") == 0);
-
-        if ((v = (char *)evhttp_find_header(&args, "connection_to")))
-            connection_timeout = atoi(v);
-        if ((v = (char *)evhttp_find_header(&args, "soft_to")))
-            soft_block_timeout = atoi(v);
-        if ((v = (char *)evhttp_find_header(&args, "hard_to")))
-            hard_block_timeout = atoi(v);
-        if ((v = (char *)evhttp_find_header(&args, "velocity")))
-            velocity_num = atoi(v);
-
-        if ((v = (char *)evhttp_find_header(&args, "uri_hit")))
-            uri_ratio.num_connections = atoi(v);
-        if ((v = (char *)evhttp_find_header(&args, "uri_sec")))
-            uri_ratio.timelimit = atoi(v);
-        if ((v = (char *)evhttp_find_header(&args, "host_hit")))
-            host_ratio.num_connections = atoi(v);
-        if ((v = (char *)evhttp_find_header(&args, "host_sec")))
-            host_ratio.timelimit = atoi(v);
-        if ((v = (char *)evhttp_find_header(&args, "addr_hit")))
-            addr_ratio.num_connections = atoi(v);
-        if ((v = (char *)evhttp_find_header(&args, "addr_sec")))
-            addr_ratio.timelimit = atoi(v);
+        load_config(TRUE);
     }
-
-
 
     evhttp_add_header(req->output_headers, "Location", redir);
     evhttp_send_reply(req, 302, "Redirection", buf);
@@ -837,7 +767,6 @@ webserver_init(void)
     evhttp_set_cb(httpd, "/holddowns.html", httpd_put_holddowns_html, NULL);
     evhttp_set_cb(httpd, "/config", httpd_put_config, NULL);
     evhttp_set_cb(httpd, "/config.html", httpd_put_config, (void *)1);
-    evhttp_set_cb(httpd, "/editconfig.html", httpd_put_editconfig, (void *)1);
     evhttp_set_cb(httpd, "/connections", httpd_put_connections, NULL);
     evhttp_set_cb(httpd, "/connections.html", httpd_put_connections_html, NULL);
     evhttp_set_cb(httpd, "/addrs", httpd_put_addrs, NULL);

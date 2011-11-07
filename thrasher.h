@@ -192,7 +192,8 @@ void expire_stats_node(int sock, short which, qstats_t * stat_node);
 blocked_node_t *block_addr(client_conn_t * conn, uint32_t addr);
 int update_thresholds(client_conn_t * conn, char *key, stat_type_t type, block_ratio_t *ratio);
 int do_thresholding(client_conn_t * conn);
-char *save_data();
+void save_data();
+void load_config(gboolean reload);
 
 void client_process_data(int sock, short which, client_conn_t * conn);
 void client_read_payload(int sock, short which, client_conn_t * conn);

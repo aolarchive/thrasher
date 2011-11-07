@@ -1,7 +1,7 @@
 1.0r25 changes
-    * Support saving and reloading holddown data
+    * Support saving and reloading holddown data on startup
 
-    * Support editing live config
+    * Support reload config, only some options can be reloaded
 
 1.0r24 changes
     * Fixed velocity bug with rbl queries
