@@ -1815,7 +1815,7 @@ load_data ()
     FIMPORT_u16(file, version);
     if (version != 1 || len != 8 || memcmp(str, "thrasher", len) != 0) {
         fclose(file);
-        LOG(file, "ERROR: Backup file corrupt%s", "");
+        LOG(logfile, "ERROR: Backup file corrupt%s", "");
         free(str);
         return;
     }
