@@ -1379,7 +1379,7 @@ load_config(gboolean reload)
                                                   keys[i], NULL);
                 if (str) {
                     gchar **splitter = g_strsplit(str, ":", 2);
-                    if (splitter) {
+                    if (splitter && splitter[0] && splitter[1]) {
                         ratio->num_connections = atoll(splitter[0]);
                         ratio->timelimit = atoll(splitter[1]);
                         g_hash_table_insert(uris_ratio_table, keys[i], ratio);
@@ -1445,10 +1445,15 @@ load_config(gboolean reload)
                                         c_f_in[i].parent,
                                         c_f_in[i].key, NULL);
             splitter = g_strsplit(str, ":", 2);
-            ratio->num_connections = atoll(splitter[0]);
-            ratio->timelimit = atoll(splitter[1]);
-            g_strfreev(splitter);
-            g_free(str);
+            if (splitter && splitter[0] && splitter[1]) {
+                ratio->num_connections = atoll(splitter[0]);
+                ratio->timelimit = atoll(splitter[1]);
+                g_strfreev(splitter);
+                g_free(str);
+            } else {
+                LOG(logfile, "Bad ratio %s for %s", str, c_f_in[i].key);
+                exit(1);
+            }
             break;
         case _c_f_t_file:
             fvar = (FILE **) c_f_in[i].var;
