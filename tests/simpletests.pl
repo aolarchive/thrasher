@@ -105,7 +105,7 @@ sub thrasherd_http_connections {
     foreach my $line (split(/\n/, $content)) {
         next if ($line !~ /^\d/);
         chomp $line;
-        my ($ip, $port, $requests, $conn, $last) = ($line =~ /^([\d\.]+) +(\d+) +(\d+) +(\w+ + \d+ [\d:]+) +(N.A|\w+ + \d+ [\d:]+)/);
+        my ($ip, $port, $requests, $conn, $last) = ($line =~ /^([\d\.]+) +(\d+) +(\d+) +(\w+ +\d+ [\d:]+) +(N.A|\w+ +\d+ [\d:]+)/);
         $connections{"$ip:$port"} = {requests => $requests, connDate => $conn, lastDate => $last};
     }
     #print Dumper(\%connections);
@@ -228,13 +228,13 @@ is (thrasher_query_v3(0, "10.10.10.10", "host3", "/uri3"), 1); #Bug: Test id=0 w
 my %holddowns = thrasherd_http_holddowns();
 is($holddowns{"1.2.3.4"}->{count}, 3);
 is($holddowns{"1.2.3.4"}->{trigger}, "255.255.255.255");
-is($holddowns{"1.2.3.4"}->{velocity}, "0.000");
+cmp_ok($holddowns{"1.2.3.4"}->{velocity}, '<=', 1000);
 cmp_ok($holddowns{"1.2.3.4"}->{timeout}, '>=', $softtimeout-1);
-is($holddowns{"1.2.3.4"}->{hardTimeout}, "N/A");
+cmp_ok($holddowns{"1.2.3.4"}->{hardTimeout}, '>=', $hardtimeout-2);
 is($holddowns{"1.2.3.4"}->{recentTimeout}, "N/A");
 is($holddowns{"10.10.10.10"}->{count}, 4);
 is($holddowns{"10.10.10.10"}->{trigger}, "255.255.255.255");
-is($holddowns{"10.10.10.10"}->{velocity}, "0.000");
+cmp_ok($holddowns{"10.10.10.10"}->{velocity}, '<=', 1000);
 cmp_ok($holddowns{"10.10.10.10"}->{timeout}, '>=', $softtimeout-1);
 is($holddowns{"10.10.10.10"}->{recentTimeout}, "N/A");
 is($holddowns{"4.3.2.1"}, undef);

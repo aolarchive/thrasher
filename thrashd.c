@@ -1090,24 +1090,11 @@ client_read_injection(int sock, short which, client_conn_t * conn)
              */
             evtimer_del(&bnode->recent_block_timeout);
         } else
-            bnode = calloc(sizeof(blocked_node_t), 1);
+            bnode = block_addr(NULL, saddr);
 
-        if (!bnode) {
-            LOG(logfile, "Out of memory: %s", strerror(errno));
-            exit(1);
-        }
-
-        bnode->saddr = saddr;
         bnode->count = 0;
         bnode->first_seen_addr = 0xffffffff;
 
-        g_tree_insert(current_blocks, &bnode->saddr, bnode);
-
-        tv.tv_sec = soft_block_timeout;
-        tv.tv_usec = 0;
-
-        evtimer_set(&bnode->timeout, (void *) expire_bnode, bnode);
-        evtimer_add(&bnode->timeout, &tv);
         break;
 
     case TYPE_REMOVE:
