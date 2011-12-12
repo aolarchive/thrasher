@@ -56,6 +56,7 @@ char           *http_password;
 char           *backup_file;
 struct event    backup_event;
 char           *config_filename;
+uint32_t        debug;
 
 uint32_t recently_blocked_timeout;
 block_ratio_t minimum_random_ratio;
@@ -91,11 +92,10 @@ free_client_conn(client_conn_t * conn)
     if (!conn)
         return;
 
-#ifdef DEBUG
-    LOG(logfile, "Lost connection from %s:%d",
-        inet_ntoa(*(struct in_addr *) &conn->conn_addr),
-        ntohs(conn->conn_port));
-#endif
+    if (debug)
+        LOG(logfile, "Lost connection from %s:%d",
+            inet_ntoa(*(struct in_addr *) &conn->conn_addr),
+            ntohs(conn->conn_port));
 
     if (connection_timeout) /* Stop the warning */
         evtimer_del(&conn->timeout);
@@ -172,6 +172,7 @@ globals_init(void)
     logfile = stdout;
     syslog_facility = g_strdup("local6");
     velocity_num = 100;
+    debug = 0;
 }
 
 int
@@ -254,9 +255,8 @@ slide_ratios(blocked_node_t * bnode)
                                      minimum_random_ratio.timelimit,
                                      maximum_random_ratio.timelimit);
     }
-#ifdef DEBUG
-    LOG(logfile, "our new random ratio is %d:%d", last_conn, last_time);
-#endif
+    if (debug)
+        LOG(logfile, "our new random ratio is %d:%d", last_conn, last_time);
     bnode->ratio.num_connections = last_conn;
     bnode->ratio.timelimit = last_time;
 }
@@ -335,10 +335,12 @@ void
 expire_hard_bnode(int sock, short which, blocked_node_t * bnode) {
     char            akey[20];
     qstats_t       *stats;
-#ifdef DEBUG
-    LOG(logfile, "HARD Timeout expired for %s after %u hits",
-        inet_ntoa(*(struct in_addr *)&bnode->saddr), bnode->count);
-#endif
+
+
+    if (debug)
+        LOG(logfile, "HARD Timeout expired (%d, %d, %p) for %s after %u hits",
+            sock, which, bnode,
+            inet_ntoa(*(struct in_addr *)&bnode->saddr), bnode->count);
 
     snprintf(akey, sizeof(akey), "%u", bnode->saddr);
     stats = g_hash_table_lookup(addr_table, akey);
@@ -353,10 +355,10 @@ void
 expire_recent_bnode(int sock, short which, blocked_node_t * bnode)
 {
 
-#ifdef DEBUG
-    LOG(logfile, "expire_recent_bnode(%p) %s",
-        bnode, inet_ntoa(*(struct in_addr *) &bnode->saddr));
-#endif
+    if (debug)
+        LOG(logfile, "RECENT Timeout expired (%d, %d, %p) for %s after %u hits",
+            sock, which, bnode,
+            inet_ntoa(*(struct in_addr *)&bnode->saddr), bnode->count);
 
     evtimer_del(&bnode->recent_block_timeout);
     g_tree_remove(recently_blocked, &bnode->saddr);
@@ -366,10 +368,10 @@ expire_recent_bnode(int sock, short which, blocked_node_t * bnode)
 void
 expire_stats_node(int sock, short which, qstats_t * stat_node)
 {
-#ifdef DEBUG
-    LOG(logfile, "expire_stats_node(%p) key:%s table:%p", stat_node,
-        stat_node->key, stat_node->table);
-#endif
+    if (debug)
+        LOG(logfile, "STATS Timeout expired (%d, %d, %p) for %s (%p) after %u hits",
+            sock, which, stat_node,
+            stat_node->key, stat_node, stat_node->connections);
 
     /*
      * remove the timers
@@ -517,10 +519,9 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type, block_ratio
         evtimer_set(&stats->timeout, (void *) expire_stats_node, stats);
         evtimer_add(&stats->timeout, &tv);
     }
-#ifdef DEBUG
-    LOG(logfile, "Our stats node is %p (key: %s, table:%p saddr:%u)",
-        stats, stats->key, stats->table, stats->saddr);
-#endif
+    if (debug)
+        LOG(logfile, "Updating stats node %s (%p) for %s type %d",
+            stats->key, stats, key, type);
 
     /*
      * increment our connection counter
@@ -582,6 +583,19 @@ do_thresholding(client_conn_t * conn)
     blocked = 0;
     ukey = NULL;
     hkey = NULL;
+
+    if (debug) {
+        char connip[40], queryip[40];
+        strcpy(connip, inet_ntoa(*(struct in_addr *) &conn->conn_addr));
+        strcpy(queryip, inet_ntoa(*(struct in_addr *) &conn->query.saddr));
+        LOG(logfile, "Thresholding %d from %s for %s host %.*s uri %.*s",
+            conn->type,
+            connip,
+            queryip,
+            conn->query.host_len, conn->query.host,
+            conn->query.uri_len, conn->query.uri);
+    }
+          
 
     /*
      * check to see if this address is whitelisted
@@ -1036,7 +1050,6 @@ void
 client_read_injection(int sock, short which, client_conn_t * conn)
 {
     blocked_node_t *bnode;
-    struct timeval  tv;
     uint32_t        saddr;
     int             ioret;
 
@@ -1220,11 +1233,10 @@ server_driver(int sock, short which, void *args)
     new_conn->conn_time = tv.tv_sec;
 
 
-#ifdef DEBUG
-    LOG(logfile, "New connection from %s:%d",
-        inet_ntoa(*(struct in_addr *) &new_conn->conn_addr),
-        ntohs(new_conn->conn_port));
-#endif
+    if (debug)
+        LOG(logfile, "New connection from %s:%d",
+            inet_ntoa(*(struct in_addr *) &new_conn->conn_addr),
+            ntohs(new_conn->conn_port));
 
     current_connections =
         g_slist_prepend(current_connections, (gpointer) new_conn);
@@ -1333,6 +1345,7 @@ load_config(gboolean reload)
         {"thrashd", "velocity-num",               _c_f_t_int,   &velocity_num,             TRUE},
         {"thrashd", "http-password",              _c_f_t_str,   &http_password,            TRUE},
         {"thrashd", "backup-file",                _c_f_t_str,   &backup_file,              FALSE},
+        {"thrashd", "debug",                      _c_f_t_int,   &debug,                    TRUE},
 #ifdef WITH_BGP
         {"thrashd", "bgp-sock",                   _c_f_t_str,   &bgp_sockname,             FALSE},
 #endif
