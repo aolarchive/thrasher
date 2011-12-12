@@ -120,3 +120,7 @@ Number of requests to estimate the velocity over.  Larger number with result in
 a smoother number, smaller will show peaks and values better.
 .IP "http-password <password>"
 Password required for http write requests
+.IP "backup-file <filename>"
+Save the holddown data to the backup-file every 15 minutes.
+On start reload the holddown data, pretending the timers
+had continue while thrashd wasn't running.

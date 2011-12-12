@@ -6,7 +6,7 @@ extern int     syslog_enabled;
 extern FILE    *logfile;
 extern char    *process_name;
 extern uint32_t uri_check;
-extern uint32_t site_check;
+extern uint32_t host_check;
 extern uint32_t addr_check;
 extern char    *bind_addr;
 extern uint16_t bind_port;
@@ -45,7 +45,7 @@ extern GHashTable     *addr_table;
 extern GHashTable     *uris_ratio_table;
 
 /* Must be an easier way to figure out when an event is going to fire */
-int event_remaining_seconds(struct event *ev) 
+uint32_t event_remaining_seconds(struct event *ev) 
 {
     struct timeval now_tv;
     struct timeval event_tv;
@@ -460,6 +460,7 @@ httpd_put_config(struct evhttp_request *req, void *args)
 
     if (args) {
         httpd_put_html_start(buf, "Config", FALSE);
+        evbuffer_add_printf(buf, "<td><a href=\"/action?action=reloadconfig&key=reloadconfig\">Reload Config</a></td>");
         evbuffer_add_printf(buf, "<pre>\n");
     }
 
@@ -470,7 +471,7 @@ httpd_put_config(struct evhttp_request *req, void *args)
     evbuffer_add_printf(buf, "  URI Check Enabled:     %s\n",
                         uri_check ? "yes" : "no");
     evbuffer_add_printf(buf, "  Host Check Enabled:    %s\n",
-                        site_check ? "yes" : "no");
+                        host_check ? "yes" : "no");
     evbuffer_add_printf(buf, "  Addr Check Enabled:    %s\n",
                         addr_check ? "yes" : "no");
     evbuffer_add_printf(buf, "  Sliding Ratio Enabled: %s\n",
@@ -630,6 +631,7 @@ httpd_action(struct evhttp_request *req, void *arg)
 {
     struct evbuffer *buf;
     const char      *authorization;
+    char            *v;
 
     if (!http_password) {
         LOG(logfile, "http-password not set in config file%s", "");
@@ -710,9 +712,26 @@ httpd_action(struct evhttp_request *req, void *arg)
         qstats_t *stats = g_hash_table_lookup(host_table, key);
         if (stats)
             block_addr(0, stats->saddr);
+    } else if (strcmp(action, "updateurl") == 0) {
+        redir = "/config.html";
+        block_ratio_t *request_uri_ratio = g_hash_table_lookup(uris_ratio_table, key);
+        if (!request_uri_ratio) {
+            request_uri_ratio = malloc(sizeof(block_ratio_t));
+            g_hash_table_insert(uris_ratio_table, g_strdup(key), request_uri_ratio);
+            request_uri_ratio->num_connections = uri_ratio.num_connections;
+            request_uri_ratio->timelimit = uri_ratio.timelimit;
+        }
+
+        if ((v = (char *)evhttp_find_header(&args, "hit")))
+            request_uri_ratio->num_connections = atoi(v);
+
+        if ((v = (char *)evhttp_find_header(&args, "sec")))
+            request_uri_ratio->timelimit = atoi(v);
+
+    } else if (strcmp(action, "reloadconfig") == 0) {
+        redir = "/config.html";
+        load_config(TRUE);
     }
-
-
 
     evhttp_add_header(req->output_headers, "Location", redir);
     evhttp_send_reply(req, 302, "Redirection", buf);
