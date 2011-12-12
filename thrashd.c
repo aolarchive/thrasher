@@ -172,7 +172,11 @@ globals_init(void)
     logfile = stdout;
     syslog_facility = g_strdup("local6");
     velocity_num = 100;
+#if DEBUG
     debug = 0;
+#else
+    debug = 1;
+#endif
 }
 
 int
@@ -520,8 +524,8 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type, block_ratio
         evtimer_add(&stats->timeout, &tv);
     }
     if (debug)
-        LOG(logfile, "Updating stats node %s (%p) for %s type %d",
-            stats->key, stats, key, type);
+        LOG(logfile, "Updating stats node %s (%p) type %d",
+            stats->key, stats, type);
 
     /*
      * increment our connection counter
