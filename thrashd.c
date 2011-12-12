@@ -52,6 +52,7 @@ GTree          *recently_blocked;
 GHashTable     *uris_ratio_table;
 GRand          *randdata;
 FILE           *logfile;
+char           *http_password;
 
 uint32_t recently_blocked_timeout;
 block_ratio_t minimum_random_ratio;
@@ -398,7 +399,11 @@ block_addr(client_conn_t * conn, uint32_t addr)
 
     memset(bnode, 0, sizeof(blocked_node_t));
 
-    bnode->last_time = conn->last_time;
+    if (conn && conn->last_time.tv_sec)
+        bnode->last_time = conn->last_time;
+    else
+        evutil_gettimeofday(&bnode->last_time, NULL);
+
     bnode->saddr = addr;
     bnode->count = 1;
 
@@ -1339,6 +1344,7 @@ load_config(const char *file)
 	{"thrashd", "group", _c_f_t_str, &drop_group}, 
 	{"thrashd", "logfile", _c_f_t_file, &logfile},
 	{"thrashd", "velocity-num", _c_f_t_int, &velocity_num}, 
+	{"thrashd", "http-password", _c_f_t_str, &http_password}, 
 #ifdef WITH_BGP
         {"thrashd", "bgp-sock", _c_f_t_str, &bgp_sockname},
 #endif

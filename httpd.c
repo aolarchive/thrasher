@@ -2,6 +2,8 @@
 #include "version.h"
 #include <inttypes.h>
 
+extern int     syslog_enabled;
+extern FILE    *logfile;
 extern char    *process_name;
 extern uint32_t uri_check;
 extern uint32_t site_check;
@@ -25,6 +27,7 @@ extern int      rbl_negcache_timeout;
 extern char    *rbl_ns;
 extern uint32_t connection_timeout;
 extern uint32_t velocity_num;
+extern char    *http_password;
 
 extern block_ratio_t minimum_random_ratio;
 extern block_ratio_t maximum_random_ratio;
@@ -149,10 +152,14 @@ fill_http_blocks_html(void *key, blocked_node_t * val, struct evbuffer *buf)
     }
 
     if (val->recent_block_timeout.ev_timeout.tv_sec == 0) {
-        evbuffer_add_printf(buf, "<td>N/A</td></tr>");
+        evbuffer_add_printf(buf, "<td>N/A</td>");
     } else  {
-        evbuffer_add_printf(buf, "<td>%d</td></tr>", event_remaining_seconds(&val->recent_block_timeout));
+        evbuffer_add_printf(buf, "<td>%d</td>", event_remaining_seconds(&val->recent_block_timeout));
     }
+
+    if (http_password)
+        evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeHolddown&key=%d\">Unblock</a></td>",*(uint32_t *)key);
+    evbuffer_add_printf(buf, "</tr>");
      
     return FALSE;
 }
@@ -221,10 +228,14 @@ fill_http_addr_html(void *key, qstats_t * val, struct evbuffer *buf)
                         val->connections);
 
     if (val->timeout.ev_timeout.tv_sec == 0) {
-        evbuffer_add_printf(buf, "<td>N/A</td></tr>");
+        evbuffer_add_printf(buf, "<td>N/A</td>");
     } else  {
-        evbuffer_add_printf(buf, "<td>%d</td></tr>", event_remaining_seconds(&val->timeout));
+        evbuffer_add_printf(buf, "<td>%d</td>", event_remaining_seconds(&val->timeout));
     }
+
+    if (http_password)
+        evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeAddr&key=%s\">Remove</a> <a href=\"/action?action=blockAddr&key=%s\">Block</a></td>", (char*)key, (char*)key);
+    evbuffer_add_printf(buf, "</tr>");
 
     return FALSE;
 }
@@ -254,7 +265,7 @@ fill_http_urihost(void *key, qstats_t * val, struct evbuffer *buf)
 }
 
 gboolean
-fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf)
+fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf, char *type)
 {
     char *colon;
 
@@ -268,23 +279,44 @@ fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf)
         evbuffer_add_printf(buf, "<td>%d</td>", event_remaining_seconds(&val->timeout));
     }
 
-    /* Print up to 40 chars of the uri or host */
+    /* Print up to 80 chars of the uri or host */
     colon = strchr(key, ':');
     if (colon) {
-        gchar *escaped = g_markup_escape_text(colon+1, MIN(40, strlen(colon+1)));
-        evbuffer_add_printf(buf, "<td>%s</td></tr>", escaped);
+        gchar *escaped = g_markup_escape_text(colon+1, MIN(80, strlen(colon+1)));
+        evbuffer_add_printf(buf, "<td>%s</td>", escaped);
         g_free(escaped);
     } else
-        evbuffer_add_printf(buf, "<td></td></tr>");
+        evbuffer_add_printf(buf, "<td></td>");
+
+
+    if (http_password) {
+        char *ukey = g_uri_escape_string(key, 0, 0);
+        evbuffer_add_printf(buf, "<td><a href=\"/action?action=remove%s&key=%s\">Remove</a> <a href=\"/action?action=block%s&key=%s\">Block</a></td>", type, (char*)ukey, type, (char*)ukey);
+        g_free(ukey);
+    }
+
+    evbuffer_add_printf(buf, "</tr>");
         
     return FALSE;
+}
+
+gboolean
+fill_http_uri_html(void *key, qstats_t * val, struct evbuffer *buf)
+{
+    return fill_http_urihost_html(key, val, buf, "Uri");
+}
+
+gboolean
+fill_http_host_html(void *key, qstats_t * val, struct evbuffer *buf)
+{
+    return fill_http_urihost_html(key, val, buf, "Host");
 }
 
 gboolean
 fill_http_uriratio(void *key, block_ratio_t * val, struct evbuffer *buf)
 {
     evbuffer_add_printf(buf,
-                        "  %30.30s:  %d hits over %d seconds\n",
+                        "  %50s:  %d hits over %d seconds\n",
                         (char*)key,
                         val->num_connections, val->timelimit);
 
@@ -518,7 +550,7 @@ httpd_put_holddowns_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Hold downs", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Blocked IP</th><th>Triggered By</th><th>Count</th><th>Velocity</th><th>Soft</th><th>Hard</th><th>Recent</th></tr>");
+    evbuffer_add_printf(buf, "<tr><th>Blocked IP</th><th>Triggered By</th><th>Count</th><th>Velocity</th><th>Soft</th><th>Hard</th><th>Recent</th>%s</tr>", (http_password?"<th>Actions</th>":""));
     g_tree_foreach(current_blocks, (GTraverseFunc) fill_http_blocks_html, buf);
     httpd_put_html_end(buf);
 
@@ -552,7 +584,7 @@ httpd_put_addrs_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Addresses", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th>");
+    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th>%s</tr>", (http_password?"<th>Actions</th>":""));
     g_hash_table_foreach(addr_table, (GHFunc) fill_http_addr_html, buf);
     httpd_put_html_end(buf);
 
@@ -568,8 +600,8 @@ httpd_put_hosts_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Hosts", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>Host (40 char max)</th></tr>");
-    g_hash_table_foreach(uri_table, (GHFunc) fill_http_urihost_html, buf);
+    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>Host (80 char max)</th>%s</tr>", (http_password?"<th>Actions</th>":""));
+    g_hash_table_foreach(host_table, (GHFunc) fill_http_host_html, buf);
     httpd_put_html_end(buf);
 
     evhttp_add_header(req->output_headers, "Content-Type", "text/html");
@@ -584,13 +616,108 @@ httpd_put_uris_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "URIs", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>URI (40 char max)</th></tr>");
-    g_hash_table_foreach(uri_table, (GHFunc) fill_http_urihost_html, buf);
+    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>URI (80 char max)</th>%s</tr>", (http_password?"<th>Actions</th>":""));
+    g_hash_table_foreach(uri_table, (GHFunc) fill_http_uri_html, buf);
     httpd_put_html_end(buf);
 
     evhttp_add_header(req->output_headers, "Content-Type", "text/html");
     evhttp_send_reply(req, HTTP_OK, "OK", buf);
     evbuffer_free(buf);
+}
+
+void
+httpd_action(struct evhttp_request *req, void *arg)
+{
+    struct evbuffer *buf;
+    const char      *authorization;
+
+    if (!http_password) {
+        LOG(logfile, "http-password not set in config file%s", "");
+        return;
+    }
+
+    buf = evbuffer_new();
+
+    authorization = evhttp_find_header(req->input_headers, "authorization");
+    if (!authorization || g_ascii_strncasecmp(authorization, "Basic ", 6) != 0) {
+        evhttp_add_header(req->output_headers, "WWW-Authenticate", "Basic realm=\"Thrashd\"");
+        evhttp_send_reply(req, 401, "Authorization Required", buf);
+        evbuffer_free(buf);
+        return;
+    }
+
+    gsize   decoded_len;
+    guchar *decoded = g_base64_decode(authorization+6, &decoded_len);
+    char *colon = strchr((char*)decoded, ':');
+    if (!colon || decoded[0] == ':' || strcmp(colon+1, http_password) != 0) {
+        g_free(decoded);
+        evhttp_add_header(req->output_headers, "WWW-Authenticate", "Basic realm=\"Thrashd\"");
+        evhttp_send_reply(req, 401, "Authorization Required", buf);
+        evbuffer_free(buf);
+        return;
+    }
+
+    struct evkeyvalq    args;
+    evhttp_parse_query(req->uri, &args);
+
+    char *action = (char *)evhttp_find_header(&args, "action");
+    char *key = (char *)evhttp_find_header(&args, "key");
+    char *redir = "/config.html";
+
+    if (!action || !key) {
+        evhttp_clear_headers(&args);
+        g_free(decoded);
+        return;
+    }
+
+    LOG(logfile, "webaction user:%.*s action:%s key:%s", 
+        (int)((char *)colon-(char *)decoded), decoded, action, key);
+
+    if (strcmp(action, "removeHolddown") == 0) {
+        redir = "/holddowns.html";
+        uint32_t        saddr = atoi(key);
+        blocked_node_t *bnode;
+
+        if ((bnode = g_tree_lookup(current_blocks, &saddr)))
+            expire_bnode(0, 0, bnode);
+    } else if (strcmp(action, "removeAddr") == 0) {
+        redir = "/addrs.html";
+        qstats_t *stats = g_hash_table_lookup(addr_table, key);
+        if (stats)
+            expire_stats_node(0, 0, stats);
+    } else if (strcmp(action, "blockAddr") == 0) {
+        redir = "/addrs.html";
+        qstats_t *stats = g_hash_table_lookup(addr_table, key);
+        if (stats)
+            block_addr(0, stats->saddr);
+    } else if (strcmp(action, "removeUri") == 0) {
+        redir = "/uris.html";
+        qstats_t *stats = g_hash_table_lookup(uri_table, key);
+        if (stats)
+            expire_stats_node(0, 0, stats);
+    } else if (strcmp(action, "blockUri") == 0) {
+        redir = "/uris.html";
+        qstats_t *stats = g_hash_table_lookup(uri_table, key);
+        if (stats)
+            block_addr(0, stats->saddr);
+    } else if (strcmp(action, "removeHost") == 0) {
+        redir = "/hosts.html";
+        qstats_t *stats = g_hash_table_lookup(host_table, key);
+        if (stats)
+            expire_stats_node(0, 0, stats);
+    } else if (strcmp(action, "blockHost") == 0) {
+        redir = "/hosts.html";
+        qstats_t *stats = g_hash_table_lookup(host_table, key);
+        if (stats)
+            block_addr(0, stats->saddr);
+    }
+
+
+
+    evhttp_add_header(req->output_headers, "Location", redir);
+    evhttp_send_reply(req, 302, "Redirection", buf);
+    evhttp_clear_headers(&args);
+    g_free(decoded);
 }
 
 void
@@ -629,6 +756,7 @@ webserver_init(void)
     evhttp_set_cb(httpd, "/uris.html", httpd_put_uris_html, NULL);
     evhttp_set_cb(httpd, "/hosts", httpd_put_hosts, NULL);
     evhttp_set_cb(httpd, "/hosts.html", httpd_put_hosts_html, NULL);
+    evhttp_set_cb(httpd, "/action", httpd_action, NULL);
     evhttp_set_gencb(httpd, httpd_driver, NULL);
     return 0;
 }
