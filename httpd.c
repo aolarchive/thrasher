@@ -28,6 +28,7 @@ extern char    *rbl_ns;
 extern uint32_t connection_timeout;
 extern uint32_t velocity_num;
 extern char    *http_password;
+extern uint32_t debug;
 
 extern block_ratio_t minimum_random_ratio;
 extern block_ratio_t maximum_random_ratio;
@@ -478,6 +479,8 @@ httpd_put_config(struct evhttp_request *req, void *args)
 	                recently_blocked ? "yes" : "no");
     evbuffer_add_printf(buf, "  RBL Enabled:           %s\n",
 	                rbl_zone ? "yes":"no");
+    evbuffer_add_printf(buf, "  Debug Enabled:         %s\n",
+	                debug ? "yes":"no");
 
     evbuffer_add_printf(buf, "  Bind addr:             %s\n", bind_addr);
     evbuffer_add_printf(buf, "  Bind port:             %d\n", bind_port);

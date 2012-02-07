@@ -173,9 +173,9 @@ globals_init(void)
     syslog_facility = g_strdup("local6");
     velocity_num = 100;
 #if DEBUG
-    debug = 0;
-#else
     debug = 1;
+#else
+    debug = 0;
 #endif
 }
 
