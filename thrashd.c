@@ -1,6 +1,8 @@
 #include <pwd.h>
 #include <grp.h>
 
+#include <sys/resource.h>
+
 #include "thrasher.h"
 #include "version.h"
 #include "httpd.h"
@@ -122,6 +124,16 @@ uint32_cmp(const void *a, const void *b)
         return 1;
 
     return 0;
+}
+
+void increase_limits()
+{
+
+    struct rlimit l;
+
+    getrlimit(RLIMIT_NOFILE, &l);
+    l.rlim_cur = l.rlim_max;
+    setrlimit(RLIMIT_NOFILE, &l);
 }
 
 void
@@ -1997,6 +2009,7 @@ drop_perms(void)
 int
 main(int argc, char **argv)
 {
+    increase_limits();
     globals_init();
     parse_args(argc, argv);
     event_init();
