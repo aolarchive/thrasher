@@ -50,6 +50,7 @@ def configure():
     enable_bgp    = ARGUMENTS.get('enable-bgp')
     enable_dbg    = ARGUMENTS.get('enable-debug')
     enable_static = ARGUMENTS.get('enable-static')
+    enable_geoip  = ARGUMENTS.get('enable-geoip')
 
     if enable_bgp:
         print '>>> Enabling BGP support'
@@ -74,6 +75,13 @@ def configure():
 
         print '>>> Enabling static compile' 
         env.Append(LINKFLAGS='-static')
+
+    if enable_geoip:
+        if not conf.CheckLib('GeoIP'):
+            sys.exit(1)
+        print '>>> Enabling GeoIP support'
+        env.Append(LDFLAGS="-lGeoIP")
+        env.Append(CFLAGS="-DWITH_GEOIP")
         
 
 colors = {}
