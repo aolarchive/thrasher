@@ -1,3 +1,6 @@
+1.0r27 changes
+    * Increase rlimit at startup
+
 1.0r26 changes
     * Added debug config
 
