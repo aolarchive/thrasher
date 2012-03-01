@@ -171,6 +171,32 @@ if ($ARGV[0] eq "--singletest") {
         }
     }
     exit 0;
+} elsif ($ARGV[0] eq "--conntest") {
+    my $num = 2000;
+    print "Connecting $num\n";
+    my @thrashers;
+    for (my $x = 0; $x < $num; $x++) {
+        $thrashers[$x] = IO::Socket::INET->new('localhost:54320');
+        die "Couldn't connect to thrashd on 'localhost:54320' for $x" if (!$thrashers[$x]);
+    }
+
+    my $addr = inet_aton("10.10.10.10");
+    my $uri = "/test.uri";
+    my $host = "/test.host";
+    my $data = pack("Ca*nna*a*", TYPE_THRESHOLD_v1, $addr, length($uri), length($host), $uri, $host);
+    for (my $y = 0; $y < $num; $y++) {
+        print "Writing\n";
+        for (my $x = 0; $x < $num; $x++) {
+            $thrashers[$x]->syswrite($data);
+        }
+        print "Reading\n";
+        for (my $x = 0; $x < $num; $x++) {
+            $thrashers[$x]->read(my $buf, 1, 0);
+        }
+        print "Done $y\n";
+    }
+    print "Done\n";
+    exit 0;
 }
 
 # Check if things have cleared out, don't want failed tests
