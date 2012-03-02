@@ -1,3 +1,9 @@
+1.0r27 changes
+    * Increase rlimit at startup
+
+1.0r26 changes
+    * Added debug config
+
 1.0r25 changes
     * Support saving and reloading holddown data on startup
 
