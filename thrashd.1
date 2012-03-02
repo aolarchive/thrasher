@@ -126,3 +126,8 @@ On start reload the holddown data, pretending the timers
 had continue while thrashd wasn't running.
 .IP "debug = (0|1)"
 Enables more debug statements.  The default is 0.
+.IP "geoip-file = <filename>"
+When compiled with enable-geoip, set this variable to the location of the Maxmind GeoIP.dat file 
+to show IP to country information in the html view
+.IP "ip-action-url = <url>"
+When set, clicking on a ip in the html view will launch this url in a new tab

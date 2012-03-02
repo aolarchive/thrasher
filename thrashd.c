@@ -8,6 +8,11 @@
 #include "httpd.h"
 #include "filemac.h"
 
+#ifdef WITH_GEOIP
+#include <GeoIP.h>
+GeoIP *gi = 0;
+#endif
+
 #define MAX_URI_SIZE  1500
 #define MAX_HOST_SIZE 1500
 
@@ -43,6 +48,7 @@ uint64_t        total_blocked_connections;
 uint64_t        total_queries;
 uint32_t        connection_timeout;
 GSList         *current_connections;
+int             current_connections_count;
 GTree          *current_blocks;
 GHashTable     *uri_table;
 GHashTable     *host_table;
@@ -59,6 +65,8 @@ char           *backup_file;
 struct event    backup_event;
 char           *config_filename;
 uint32_t        debug;
+char           *geoip_file;
+char           *ip_action_url;
 
 uint32_t recently_blocked_timeout;
 block_ratio_t minimum_random_ratio;
@@ -106,6 +114,7 @@ free_client_conn(client_conn_t * conn)
     reset_iov(&conn->data);
     reset_query(&conn->query);
 
+    current_connections_count--;
     current_connections =
         g_slist_remove(current_connections, (gconstpointer) conn);
 
@@ -160,6 +169,7 @@ globals_init(void)
     addr_ratio.timelimit = 10;
     qps = 0;
     qps_last = 0;
+    current_connections_count = 0;
     current_connections = g_slist_alloc();
     current_blocks = g_tree_new((GCompareFunc) uint32_cmp);
     uri_table = g_hash_table_new(g_str_hash, g_str_equal);
@@ -184,6 +194,8 @@ globals_init(void)
     logfile = stdout;
     syslog_facility = g_strdup("local6");
     velocity_num = 100;
+    geoip_file = 0;
+    ip_action_url = 0;
 #if DEBUG
     debug = 1;
 #else
@@ -1254,6 +1266,7 @@ server_driver(int sock, short which, void *args)
             inet_ntoa(*(struct in_addr *) &new_conn->conn_addr),
             ntohs(new_conn->conn_port));
 
+    current_connections_count++;
     current_connections =
         g_slist_prepend(current_connections, (gpointer) new_conn);
 
@@ -1362,6 +1375,8 @@ load_config(gboolean reload)
         {"thrashd", "http-password",              _c_f_t_str,   &http_password,            TRUE},
         {"thrashd", "backup-file",                _c_f_t_str,   &backup_file,              FALSE},
         {"thrashd", "debug",                      _c_f_t_int,   &debug,                    TRUE},
+        {"thrashd", "geoip-file",                 _c_f_t_str,   &geoip_file,               FALSE},
+        {"thrashd", "ip-action-url",              _c_f_t_str,   &ip_action_url,            TRUE},
 #ifdef WITH_BGP
         {"thrashd", "bgp-sock",                   _c_f_t_str,   &bgp_sockname,             FALSE},
 #endif
@@ -1376,14 +1391,23 @@ load_config(gboolean reload)
         LOG(logfile, "Reloading config: %s", config_filename);
 
     if (!g_key_file_load_from_file(config_file, config_filename, flags, &error)) {
-        LOG(logfile, "Error loading config: %s", strerror(errno));
-        exit(1);
+        LOG(logfile, "Error loading config: %s", error->message);
+        if (reload)
+            return;
+        else
+            exit(1);
     }
 
     if (g_key_file_has_group(config_file, "uri-ratios")) {
         gsize length;
         gchar **keys = g_key_file_get_keys (config_file, "uri-ratios", &length, &error);
-        if (length && keys) {
+        if (error) {
+            LOG(logfile, "Error with uri-ratios: %s", error->message);
+            if (reload)
+                return;
+            else
+                exit(1);
+        } else if (length && keys) {
             if (uris_ratio_table)
                 g_hash_table_destroy(uris_ratio_table);
 
@@ -1529,9 +1553,10 @@ parse_args(int argc, char **argv)
         "Options: \n"
         "   -h:        Help me!!\n"
         "   -v:        Version\n"
+        "   -d:        Debug\n"
         "   -c <file>: Configuration file\n";
 
-    while ((c = getopt(argc, argv, "hvc:")) != -1) {
+    while ((c = getopt(argc, argv, "dhvc:")) != -1) {
         switch (c) {
         case 'c':
             config_filename = optarg;
@@ -1540,6 +1565,9 @@ parse_args(int argc, char **argv)
         case 'v':
             printf("%s (%s)\n", VERSION, VERSION_NAME);
             exit(1);
+        case 'd':
+            debug = 1;
+            break;
         case 'h':
             printf("Usage: %s [opts]\n%s", argv[0], help);
             exit(1);
@@ -1819,7 +1847,7 @@ load_data ()
     int            len;
     uint16_t       version;
     uint32_t       file_time;
-    uint32_t       time_diff;
+    int32_t        time_diff;
     struct timeval current_time;
     uint32_t       num;
 
@@ -1847,7 +1875,7 @@ load_data ()
 
     FIMPORT_u32(file, num);
     while (!feof(file) && num > 0) {
-        uint32_t        soft_timeout, hard_timeout;
+        int32_t         soft_timeout, hard_timeout;
         blocked_node_t *bn;
         struct timeval  tv;
 
@@ -1871,10 +1899,16 @@ load_data ()
             break;
         }
 
-        g_tree_insert(current_blocks, &bn->saddr, bn);
+
+        if (soft_timeout <= time_diff) {
+            free(bn);
+            continue;
+        }
 
         tv.tv_sec = soft_timeout - time_diff;
         tv.tv_usec = 0;
+
+        g_tree_insert(current_blocks, &bn->saddr, bn);
 
         evtimer_set(&bn->timeout, (void *) expire_bnode, bn);
         evtimer_add(&bn->timeout, &tv);
@@ -1915,10 +1949,26 @@ segvfunc(int sig)
 }
 #endif
 
-#ifdef WITH_BGP
+void
+geoip_init(void)
+{
+
+#ifdef WITH_GEOIP
+    if (!geoip_file)
+        return;
+
+    gi = GeoIP_open(geoip_file, GEOIP_MEMORY_CACHE);
+    if (!gi) {
+        LOG(logfile, "ERROR: Couldn't initialize GeoIP %s from %s", strerror(errno), geoip_file);
+        exit(1);
+    }
+#endif
+}
+
 void
 bgp_init(void)
 {
+#ifdef WITH_BGP
     if (!bgp_sockname)
         return;
 
@@ -1928,8 +1978,8 @@ bgp_init(void)
     }
     LOG(logfile, "sock %d", bgp_sock);
 
-}
 #endif
+}
 
 void
 thrashd_init(void)
@@ -2013,10 +2063,9 @@ main(int argc, char **argv)
     globals_init();
     parse_args(argc, argv);
     event_init();
+    geoip_init();
     thrashd_init();
-#ifdef WITH_BGP
     bgp_init();
-#endif
     log_startup();
     drop_perms();
 
