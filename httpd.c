@@ -241,7 +241,7 @@ fill_http_addr_html(void *key, qstats_t * val, struct evbuffer *buf)
     evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addr, addr);
 
 #ifdef WITH_GEOIP
-    evbuffer_add_printf(buf, "<td>%s</td>", GeoIP_country_code_by_ipnum(gi, ntohl(val->saddr)));
+    evbuffer_add_printf(buf, "<td>%s</td>", GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr)));
 #endif
 
     evbuffer_add_printf(buf, "<td>%d</td>", val->connections);
@@ -292,7 +292,7 @@ fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf, char *ty
     evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addr, addr);
 
 #ifdef WITH_GEOIP
-    evbuffer_add_printf(buf, "<td>%s</td>", GeoIP_country_code_by_ipnum(gi, ntohl(val->saddr)));
+    evbuffer_add_printf(buf, "<td>%s</td>", GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr)));
 #endif
 
     evbuffer_add_printf(buf, "<td>%d</td>", val->connections);
@@ -832,7 +832,7 @@ webserver_init(void)
 
 #ifdef WITH_GEOIP
     if (gi) 
-        geoip_header = "<th>COCO</th>";
+        geoip_header = "<th>Country</th>";
     else
         geoip_header = "";
 #else
