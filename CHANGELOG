@@ -1,3 +1,10 @@
+1.0r28 changes
+    * Added counts to the html header
+    * Added favicon from William
+    * Support GeoIP display in html
+    * Fixed loading backup file time issues
+    * Clicking an ip in html opens a new window with ip information 
+
 1.0r27 changes
     * Increase rlimit at startup
 

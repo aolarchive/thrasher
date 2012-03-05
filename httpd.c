@@ -1,6 +1,11 @@
 #include "thrasher.h"
 #include "version.h"
 #include <inttypes.h>
+#ifdef WITH_GEOIP
+#include "GeoIP.h"
+extern GeoIP *gi;
+extern char *geoip_file;
+#endif
 
 extern int     syslog_enabled;
 extern FILE    *logfile;
@@ -29,6 +34,8 @@ extern uint32_t connection_timeout;
 extern uint32_t velocity_num;
 extern char    *http_password;
 extern uint32_t debug;
+extern char    *ip_action_url;
+extern char    *config_filename;
 
 extern block_ratio_t minimum_random_ratio;
 extern block_ratio_t maximum_random_ratio;
@@ -36,6 +43,7 @@ extern uint32_t recently_blocked_timeout;
 
 
 extern GTree   *current_blocks;
+extern int      current_connections_count;
 extern GSList  *current_connections;
 extern GTree   *recently_blocked;
 
@@ -44,6 +52,9 @@ extern GHashTable     *host_table;
 extern GHashTable     *addr_table;
 
 extern GHashTable     *uris_ratio_table;
+
+static char *geoip_header;
+
 
 /* Must be an easier way to figure out when an event is going to fire */
 uint32_t event_remaining_seconds(struct event *ev) 
@@ -113,15 +124,17 @@ fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer *buf)
 gboolean
 fill_http_blocks_html(void *key, blocked_node_t * val, struct evbuffer *buf)
 {
-    char           blockedaddr[20] = { 0 };
-    char           triggeraddr[20] = { 0 };
+    char          *addr;
 
-    strncpy(blockedaddr, inet_ntoa(*(struct in_addr *) &val->saddr), sizeof(blockedaddr) - 1);
-    strncpy(triggeraddr, inet_ntoa(*(struct in_addr *) &val->first_seen_addr), sizeof(triggeraddr) - 1);
-
-
-    evbuffer_add_printf(buf, "<tr><td>%s</td><td>%s</td><td>%d</td>",
-                        blockedaddr, triggeraddr, val->count);
+    addr = inet_ntoa(*(struct in_addr *) &val->saddr);
+    evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addr, addr);
+#ifdef WITH_GEOIP
+    evbuffer_add_printf(buf, "<td>%s</td>", GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr)));
+#endif
+    
+    addr = inet_ntoa(*(struct in_addr *) &val->first_seen_addr);
+    evbuffer_add_printf(buf, "<td>%s</td><td>%d</td>",
+                        addr, val->count);
 
     if (val->count == 0) {
         evbuffer_add_printf(buf, "<td>%s</td> ", "N/A");
@@ -224,9 +237,14 @@ fill_http_addr(void *key, qstats_t * val, struct evbuffer *buf)
 gboolean
 fill_http_addr_html(void *key, qstats_t * val, struct evbuffer *buf)
 {
-    evbuffer_add_printf(buf, "<tr><td>%s</td><td>%d</td>",
-                        inet_ntoa(*(struct in_addr *) &val->saddr),
-                        val->connections);
+    char *addr = inet_ntoa(*(struct in_addr *) &val->saddr);
+    evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addr, addr);
+
+#ifdef WITH_GEOIP
+    evbuffer_add_printf(buf, "<td>%s</td>", GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr)));
+#endif
+
+    evbuffer_add_printf(buf, "<td>%d</td>", val->connections);
 
     if (val->timeout.ev_timeout.tv_sec == 0) {
         evbuffer_add_printf(buf, "<td>N/A</td>");
@@ -270,9 +288,14 @@ fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf, char *ty
 {
     char *colon;
 
-    evbuffer_add_printf(buf, "<tr><td>%s</td><td>%d</td>",
-                        inet_ntoa(*(struct in_addr *) &val->saddr), 
-                        val->connections);
+    char *addr = inet_ntoa(*(struct in_addr *) &val->saddr);
+    evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addr, addr);
+
+#ifdef WITH_GEOIP
+    evbuffer_add_printf(buf, "<td>%s</td>", GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr)));
+#endif
+
+    evbuffer_add_printf(buf, "<td>%d</td>", val->connections);
 
     if (val->timeout.ev_timeout.tv_sec == 0) {
         evbuffer_add_printf(buf, "<td>N/A</td>");
@@ -426,12 +449,19 @@ httpd_put_html_start(struct evbuffer *buf, char *title, gboolean table)
     evbuffer_add_printf(buf, "<head><title>Thrashd - %s</title></head>", title);
     evbuffer_add_printf(buf, "<body>");
     evbuffer_add_printf(buf, "<a href='/config.html'>Config</a>&nbsp;");
-    evbuffer_add_printf(buf, "<a href='/connections.html'>Connections</a>&nbsp;");
-    evbuffer_add_printf(buf, "<a href='/holddowns.html'>Holddowns</a>&nbsp;");
-    evbuffer_add_printf(buf, "<a href='/addrs.html'>Addresses</a>&nbsp;");
-    evbuffer_add_printf(buf, "<a href='/hosts.html'>Hosts</a>&nbsp;");
-    evbuffer_add_printf(buf, "<a href='/uris.html'>URIs</a>&nbsp;");
+    evbuffer_add_printf(buf, "<a href='/connections.html'>Connections (%d)</a>&nbsp;", current_connections_count);
+    evbuffer_add_printf(buf, "<a href='/holddowns.html'>Holddowns (%d)</a>&nbsp;", g_tree_nnodes(current_blocks));
+    evbuffer_add_printf(buf, "<a href='/addrs.html'>Addresses (%d)</a>&nbsp;", g_hash_table_size(addr_table));
+    evbuffer_add_printf(buf, "<a href='/hosts.html'>Hosts (%d)</a>&nbsp;", g_hash_table_size(host_table));
+    evbuffer_add_printf(buf, "<a href='/uris.html'>URIs (%d)</a>&nbsp;", g_hash_table_size(uri_table));
     evbuffer_add_printf(buf, "<hr>");
+
+    evbuffer_add_printf(buf, "<script type=\"text/javascript\">\n");
+    if (ip_action_url)
+        evbuffer_add_printf(buf, "function ipMouse(ip) {window.open('%s' + ip, '_blank');}\n", ip_action_url);
+    else
+        evbuffer_add_printf(buf, "function ipMouse(ip) {alert('set ip-action-url in %s');}\n", config_filename);
+    evbuffer_add_printf(buf, "</script>\n");
 
     if (table) {
         /* http://www.scriptiny.com/2008/11/javascript-table-sorter/ - Doesn't always sort right :) */
@@ -488,6 +518,9 @@ httpd_put_config(struct evhttp_request *req, void *args)
     evbuffer_add_printf(buf, "  Soft block timeout:    %d\n", soft_block_timeout);
     evbuffer_add_printf(buf, "  Hard block timeout:    %d\n", hard_block_timeout);
     evbuffer_add_printf(buf, "  Velocity Number:       %d\n", velocity_num);
+#ifdef WITH_GEOIP
+    evbuffer_add_printf(buf, "  GeoIP File:            %s\n", (gi?geoip_file:"NOT SET"));
+#endif
     evbuffer_add_printf(buf, "\n");
 
     evbuffer_add_printf(buf, "  RBL Zone:              %s\n", rbl_zone?rbl_zone:"NULL");
@@ -521,7 +554,7 @@ httpd_put_config(struct evhttp_request *req, void *args)
 
     evbuffer_add_printf(buf,
 	                "%d clients currently connected\n",
-			g_slist_length(current_connections)-1);
+			current_connections_count);
 
     evbuffer_add_printf(buf,
                         "%d addresses currently in hold-down (%u qps)\n",
@@ -554,7 +587,7 @@ httpd_put_holddowns_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Hold downs", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Blocked IP</th><th>Triggered By</th><th>Count</th><th>Velocity</th><th>Soft</th><th>Hard</th><th>Recent</th>%s</tr>", (http_password?"<th>Actions</th>":""));
+    evbuffer_add_printf(buf, "<tr><th>Blocked IP</th>%s<th>Triggered By</th><th>Count</th><th>Velocity</th><th>Soft</th><th>Hard</th><th>Recent</th>%s</tr>", geoip_header, (http_password?"<th>Actions</th>":""));
     g_tree_foreach(current_blocks, (GTraverseFunc) fill_http_blocks_html, buf);
     httpd_put_html_end(buf);
 
@@ -588,7 +621,7 @@ httpd_put_addrs_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Addresses", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th>%s</tr>", (http_password?"<th>Actions</th>":""));
+    evbuffer_add_printf(buf, "<tr><th>Address</th>%s<th>Connections</th><th>Timeout</th>%s</tr>", geoip_header, (http_password?"<th>Actions</th>":""));
     g_hash_table_foreach(addr_table, (GHFunc) fill_http_addr_html, buf);
     httpd_put_html_end(buf);
 
@@ -604,7 +637,7 @@ httpd_put_hosts_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Hosts", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>Host (80 char max)</th>%s</tr>", (http_password?"<th>Actions</th>":""));
+    evbuffer_add_printf(buf, "<tr><th>Address</th>%s<th>Connections</th><th>Timeout</th><th>Host (80 char max)</th>%s</tr>", geoip_header, (http_password?"<th>Actions</th>":""));
     g_hash_table_foreach(host_table, (GHFunc) fill_http_host_html, buf);
     httpd_put_html_end(buf);
 
@@ -620,7 +653,7 @@ httpd_put_uris_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "URIs", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Address</th><th>Connections</th><th>Timeout</th><th>URI (80 char max)</th>%s</tr>", (http_password?"<th>Actions</th>":""));
+    evbuffer_add_printf(buf, "<tr><th>Address</th>%s<th>Connections</th><th>Timeout</th><th>URI (80 char max)</th>%s</tr>",geoip_header, (http_password?"<th>Actions</th>":""));
     g_hash_table_foreach(uri_table, (GHFunc) fill_http_uri_html, buf);
     httpd_put_html_end(buf);
 
@@ -743,6 +776,37 @@ httpd_action(struct evhttp_request *req, void *arg)
 }
 
 void
+httpd_put_favicon (struct evhttp_request *req, void *arg)
+{
+    struct evbuffer *buf;
+
+    static unsigned char thrash_ico[] = {
+       0x00,   0x00,   0x01,   0x00,   0x01,   0x00,   0x10,   0x10,   0x02,   0x00,   0x01,   0x00,   0x01,   0x00,   0xb0,   0x00,
+       0x00,   0x00,   0x16,   0x00,   0x00,   0x00,   0x28,   0x00,   0x00,   0x00,   0x10,   0x00,   0x00,   0x00,   0x20,   0x00,
+       0x00,   0x00,   0x01,   0x00,   0x01,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,
+       0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,
+       0x00,   0x00,   0xff,   0xff,   0xff,   0x00,   0xff,   0xff,   0x00,   0x00,   0xff,   0xff,   0x00,   0x00,   0xb6,   0x6d,
+       0x00,   0x00,   0xb5,   0xad,   0x00,   0x00,   0x87,   0xad,   0x00,   0x00,   0xb4,   0x61,   0x00,   0x00,   0xb5,   0xed,
+       0x00,   0x00,   0xce,   0x6d,   0x00,   0x00,   0xff,   0xff,   0x00,   0x00,   0xed,   0xad,   0x00,   0x00,   0xed,   0xad,
+       0x00,   0x00,   0xed,   0xab,   0x00,   0x00,   0xec,   0x23,   0x00,   0x00,   0xed,   0xad,   0x00,   0x00,   0x85,   0xa3,
+       0x00,   0x00,   0xff,   0xff,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,
+       0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,
+       0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,
+       0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,   0x00,
+       0x00,   0x00,   0x00,   0x00,   0x00,   0x00,                              
+    };
+
+    buf = evbuffer_new();
+
+    evhttp_add_header(req->output_headers, "Content-Type", "text/x-icon");
+
+    evbuffer_add(buf, thrash_ico, sizeof(thrash_ico));
+
+    evhttp_send_reply(req, HTTP_OK, "OK", buf);
+    evbuffer_free(buf);
+}
+
+void
 httpd_driver(struct evhttp_request *req, void *arg)
 {
     struct evbuffer *buf;
@@ -766,6 +830,15 @@ webserver_init(void)
     if (httpd == NULL)
         return -1;
 
+#ifdef WITH_GEOIP
+    if (gi) 
+        geoip_header = "<th>Country</th>";
+    else
+        geoip_header = "";
+#else
+    geoip_header = "";
+#endif
+
     evhttp_set_cb(httpd, "/holddowns", httpd_put_holddowns, NULL);
     evhttp_set_cb(httpd, "/holddowns.html", httpd_put_holddowns_html, NULL);
     evhttp_set_cb(httpd, "/config", httpd_put_config, NULL);
@@ -778,6 +851,7 @@ webserver_init(void)
     evhttp_set_cb(httpd, "/uris.html", httpd_put_uris_html, NULL);
     evhttp_set_cb(httpd, "/hosts", httpd_put_hosts, NULL);
     evhttp_set_cb(httpd, "/hosts.html", httpd_put_hosts_html, NULL);
+    evhttp_set_cb(httpd, "/favicon.ico", httpd_put_favicon, NULL);
     evhttp_set_cb(httpd, "/action", httpd_action, NULL);
     evhttp_set_gencb(httpd, httpd_driver, NULL);
     return 0;

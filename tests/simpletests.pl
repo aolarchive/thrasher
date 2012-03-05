@@ -163,10 +163,10 @@ if ($ARGV[0] eq "--singletest") {
     }
     exit 0;
 } elsif ($ARGV[0] eq "--spreadtest") {
-    for (my $x = 0; $x < 50; $x++) {
-        for (my $y = 0; $y < 50; $y++) {
-            for (my $z = 0; $z < 500; $z++) {
-                thrasher_query_v1("10.10.$x.$y", "host$x.$y", "/$x/$z");
+    for (my $x = 0; $x < 255; $x++) {
+        for (my $y = 0; $y < 255; $y+=5) {
+            for (my $z = 0; $z < 50; $z++) {
+                thrasher_query_v1("$x.$y.10.10", "host$x.$y", "/$x/$z");
             }
         }
     }
