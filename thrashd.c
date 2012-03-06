@@ -1172,6 +1172,9 @@ client_read_injection(int sock, short which, client_conn_t * conn)
 
     switch (conn->type) {
     case TYPE_INJECT:
+        LOG(logfile, "type I holding down address %s triggered by injection", 
+            inet_ntoa(*(struct in_addr *) &saddr));
+
         /*
          * make sure the node doesn't already exist
          */
