@@ -182,7 +182,8 @@ thrash_client_lookup(thrash_client_t * cli, uint32_t addr, void *data)
 {
     client_query_t *q;
     uint16_t        hlen,
-                    ulen;
+                    ulen,
+                    rlen;
     uint32_t        ident;
 
     q = (client_query_t *) data;
@@ -246,6 +247,34 @@ thrash_client_lookup(thrash_client_t * cli, uint32_t addr, void *data)
         memcpy(&cli->data.buf[11], &ulen, sizeof(uint16_t));
         memcpy(&cli->data.buf[13], q->host, q->host_len);
         memcpy(&cli->data.buf[13 + q->host_len], q->uri, q->uri_len);
+        break;
+
+    case TYPE_THRESHOLD_v4:
+        if (!q)
+            return;
+
+        hlen = htons(q->host_len);
+        ulen = htons(q->uri_len);
+        rlen = htons(q->reason_len);
+        ident = htonl(q->ident);
+
+        initialize_iov(&cli->data, sizeof(uint8_t) +    // type
+                       sizeof(uint32_t) +       // identifier
+                       sizeof(uint32_t) +       // address
+                       sizeof(uint16_t) +       // hostlen
+                       sizeof(uint16_t) +       // urilen
+                       sizeof(uint16_t) +       // reasonlen
+                       q->host_len + q->uri_len + q->reason_len);
+
+        memcpy(cli->data.buf, &cli->type, 1);
+        memcpy(&cli->data.buf[1], &rlen, sizeof(uint16_t));
+        memcpy(&cli->data.buf[3], &q->ident, sizeof(uint32_t));
+        memcpy(&cli->data.buf[7], &addr, sizeof(uint32_t));
+        memcpy(&cli->data.buf[11], &hlen, sizeof(uint16_t));
+        memcpy(&cli->data.buf[13], &ulen, sizeof(uint16_t));
+        memcpy(&cli->data.buf[15], q->host, q->host_len);
+        memcpy(&cli->data.buf[15 + q->host_len], q->uri, q->uri_len);
+        memcpy(&cli->data.buf[15 + q->host_len + q->uri_len], q->reason, q->reason_len);
         break;
 
     }

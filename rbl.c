@@ -81,9 +81,9 @@ get_rbl_answer(int result, char type, int count, int ttl,
 
     if (in_addrs) {
         cconn.conn_addr = (uint32_t) in_addrs[0].s_addr;
-        block_addr(&cconn, qsnode.saddr);
+        block_addr(&cconn, qsnode.saddr, "rbl");
     } else
-        block_addr(NULL, qsnode.saddr);
+        block_addr(NULL, qsnode.saddr, "rbl");
 
     LOG(logfile, "holding down address %s triggered by RBL",
         inet_ntoa(*(struct in_addr *) &qsnode.saddr));

@@ -121,6 +121,14 @@ fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer *buf)
     return FALSE;
 }
 
+const char *blankprint(const char *str) 
+{
+    if (str) {
+        return str;
+    }
+    return " ";
+}
+
 gboolean
 fill_http_blocks_html(void *key, blocked_node_t * val, struct evbuffer *buf)
 {
@@ -129,7 +137,8 @@ fill_http_blocks_html(void *key, blocked_node_t * val, struct evbuffer *buf)
     addr = inet_ntoa(*(struct in_addr *) &val->saddr);
     evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addr, addr);
 #ifdef WITH_GEOIP
-    evbuffer_add_printf(buf, "<td>%s</td>", GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr)));
+    if(gi)
+        evbuffer_add_printf(buf, "<td>%s</td>", blankprint(GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr))));
 #endif
     
     addr = inet_ntoa(*(struct in_addr *) &val->first_seen_addr);
@@ -170,6 +179,8 @@ fill_http_blocks_html(void *key, blocked_node_t * val, struct evbuffer *buf)
     } else  {
         evbuffer_add_printf(buf, "<td>%d</td>", event_remaining_seconds(&val->recent_block_timeout));
     }
+
+    evbuffer_add_printf(buf, "<td>%s</td>", blankprint(val->reason));
 
     if (http_password)
         evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeHolddown&key=%d\">Unblock</a></td>",*(uint32_t *)key);
@@ -241,7 +252,8 @@ fill_http_addr_html(void *key, qstats_t * val, struct evbuffer *buf)
     evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addr, addr);
 
 #ifdef WITH_GEOIP
-    evbuffer_add_printf(buf, "<td>%s</td>", GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr)));
+    if(gi)
+        evbuffer_add_printf(buf, "<td>%s</td>", blankprint(GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr))));
 #endif
 
     evbuffer_add_printf(buf, "<td>%d</td>", val->connections);
@@ -251,6 +263,8 @@ fill_http_addr_html(void *key, qstats_t * val, struct evbuffer *buf)
     } else  {
         evbuffer_add_printf(buf, "<td>%d</td>", event_remaining_seconds(&val->timeout));
     }
+
+    evbuffer_add_printf(buf, "<td>%s</td>", blankprint(val->reason));
 
     if (http_password)
         evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeAddr&key=%s\">Remove</a> <a href=\"/action?action=blockAddr&key=%s\">Block</a></td>", (char*)key, (char*)key);
@@ -292,7 +306,8 @@ fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf, char *ty
     evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addr, addr);
 
 #ifdef WITH_GEOIP
-    evbuffer_add_printf(buf, "<td>%s</td>", GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr)));
+    if(gi)
+        evbuffer_add_printf(buf, "<td>%s</td>", blankprint(GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr))));
 #endif
 
     evbuffer_add_printf(buf, "<td>%d</td>", val->connections);
@@ -302,6 +317,8 @@ fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf, char *ty
     } else  {
         evbuffer_add_printf(buf, "<td>%d</td>", event_remaining_seconds(&val->timeout));
     }
+
+    evbuffer_add_printf(buf, "<td>%s</td>", blankprint(val->reason));
 
     /* Print up to 80 chars of the uri or host */
     colon = strchr(key, ':');
@@ -587,7 +604,7 @@ httpd_put_holddowns_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Hold downs", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Blocked IP</th>%s<th>Triggered By</th><th>Count</th><th>Velocity</th><th>Soft</th><th>Hard</th><th>Recent</th>%s</tr>", geoip_header, (http_password?"<th>Actions</th>":""));
+    evbuffer_add_printf(buf, "<tr><th>Blocked IP</th>%s<th>Triggered By</th><th>Count</th><th>Velocity</th><th>Soft</th><th>Hard</th><th>Recent</th><th>Reason</th>%s</tr>", geoip_header, (http_password?"<th>Actions</th>":""));
     g_tree_foreach(current_blocks, (GTraverseFunc) fill_http_blocks_html, buf);
     httpd_put_html_end(buf);
 
@@ -621,7 +638,7 @@ httpd_put_addrs_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Addresses", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Address</th>%s<th>Connections</th><th>Timeout</th>%s</tr>", geoip_header, (http_password?"<th>Actions</th>":""));
+    evbuffer_add_printf(buf, "<tr><th>Address</th>%s<th>Connections</th><th>Timeout</th><th>Reason</th>%s</tr>", geoip_header, (http_password?"<th>Actions</th>":""));
     g_hash_table_foreach(addr_table, (GHFunc) fill_http_addr_html, buf);
     httpd_put_html_end(buf);
 
@@ -637,7 +654,7 @@ httpd_put_hosts_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "Hosts", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Address</th>%s<th>Connections</th><th>Timeout</th><th>Host (80 char max)</th>%s</tr>", geoip_header, (http_password?"<th>Actions</th>":""));
+    evbuffer_add_printf(buf, "<tr><th>Address</th>%s<th>Connections</th><th>Timeout</th><th>Reason</th><th>Host (80 char max)</th>%s</tr>", geoip_header, (http_password?"<th>Actions</th>":""));
     g_hash_table_foreach(host_table, (GHFunc) fill_http_host_html, buf);
     httpd_put_html_end(buf);
 
@@ -653,7 +670,7 @@ httpd_put_uris_html (struct evhttp_request *req, void *arg)
 
     buf = evbuffer_new();
     httpd_put_html_start(buf, "URIs", TRUE);
-    evbuffer_add_printf(buf, "<tr><th>Address</th>%s<th>Connections</th><th>Timeout</th><th>URI (80 char max)</th>%s</tr>",geoip_header, (http_password?"<th>Actions</th>":""));
+    evbuffer_add_printf(buf, "<tr><th>Address</th>%s<th>Connections</th><th>Timeout</th><th>Reason</th><th>URI (80 char max)</th>%s</tr>",geoip_header, (http_password?"<th>Actions</th>":""));
     g_hash_table_foreach(uri_table, (GHFunc) fill_http_uri_html, buf);
     httpd_put_html_end(buf);
 
@@ -727,7 +744,7 @@ httpd_action(struct evhttp_request *req, void *arg)
         redir = "/addrs.html";
         qstats_t *stats = g_hash_table_lookup(addr_table, key);
         if (stats)
-            block_addr(0, stats->saddr);
+            block_addr(0, stats->saddr, "web:blockAddr");
     } else if (strcmp(action, "removeUri") == 0) {
         redir = "/uris.html";
         qstats_t *stats = g_hash_table_lookup(uri_table, key);
@@ -737,7 +754,7 @@ httpd_action(struct evhttp_request *req, void *arg)
         redir = "/uris.html";
         qstats_t *stats = g_hash_table_lookup(uri_table, key);
         if (stats)
-            block_addr(0, stats->saddr);
+            block_addr(0, stats->saddr, "web:blockUri");
     } else if (strcmp(action, "removeHost") == 0) {
         redir = "/hosts.html";
         qstats_t *stats = g_hash_table_lookup(host_table, key);
@@ -747,7 +764,7 @@ httpd_action(struct evhttp_request *req, void *arg)
         redir = "/hosts.html";
         qstats_t *stats = g_hash_table_lookup(host_table, key);
         if (stats)
-            block_addr(0, stats->saddr);
+            block_addr(0, stats->saddr, "web:blockHost");
     } else if (strcmp(action, "updateurl") == 0) {
         redir = "/config.html";
         block_ratio_t *request_uri_ratio = g_hash_table_lookup(uris_ratio_table, key);

@@ -65,7 +65,8 @@ typedef enum {
     TYPE_REMOVE,
     TYPE_INJECT,
     TYPE_THRESHOLD_v2,
-		TYPE_THRESHOLD_v3
+    TYPE_THRESHOLD_v3,
+    TYPE_THRESHOLD_v4
 } thrash_pkt_type;
 
 /***************************************
@@ -104,9 +105,11 @@ typedef struct query {
     uint32_t        saddr;
     uint16_t        host_len;
     uint16_t        uri_len;
+    uint16_t        reason_len;
     uint32_t        ident;
     char           *host;
     char           *uri;
+    char           *reason;
 } query_t;
 
 typedef struct client_conn {
@@ -137,6 +140,7 @@ typedef struct svrconn_t {
 typedef struct qstats {
     GHashTable     *table;
     char           *key;
+    char           *reason;
     struct event    timeout;
     uint32_t        saddr;
     uint32_t        connections;
@@ -145,6 +149,7 @@ typedef struct qstats {
 typedef struct blocked_node {
     struct timeval  last_time;
     double          avg_distance_usec;
+    char           *reason;
     uint32_t        saddr;
     uint32_t        count;
     uint32_t        first_seen_addr;
@@ -189,14 +194,15 @@ void remove_holddown(uint32_t addr);
 void expire_bnode(int sock, short which, blocked_node_t * bnode);
 void expire_recent_bnode(int sock, short which, blocked_node_t *bnode);
 void expire_stats_node(int sock, short which, qstats_t * stat_node);
-blocked_node_t *block_addr(client_conn_t * conn, uint32_t addr);
-int update_thresholds(client_conn_t * conn, char *key, stat_type_t type, block_ratio_t *ratio);
+blocked_node_t *block_addr(client_conn_t * conn, uint32_t addr, const char *reason);
+int update_thresholds(client_conn_t * conn, const char *key, stat_type_t type, block_ratio_t *ratio);
 int do_thresholding(client_conn_t * conn);
 void save_data();
 void load_config(gboolean reload);
 
 void client_process_data(int sock, short which, client_conn_t * conn);
 void client_read_payload(int sock, short which, client_conn_t * conn);
+void client_read_v3_header(int sock, short which, client_conn_t * conn);
 void client_read_v2_header(int sock, short which, client_conn_t * conn);
 void client_read_v1_header(int sock, short which, client_conn_t * conn);
 void client_read_injection(int sock, short which, client_conn_t * conn);

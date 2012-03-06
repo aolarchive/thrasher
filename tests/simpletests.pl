@@ -4,16 +4,18 @@
 use strict;
 use IO::Socket;
 use LWP::Simple;
-use Test::More tests => 92;
+use Test::More tests => 103;
 use File::Temp qw/tempfile/;
 use Data::Dumper;
+use HTML::TableExtract;
 
 use constant {
 TYPE_THRESHOLD_v1 => 0,
 TYPE_REMOVE       => 1,
 TYPE_INJECT       => 2,
 TYPE_THRESHOLD_v2 => 3,
-TYPE_THRESHOLD_v3 => 4
+TYPE_THRESHOLD_v3 => 4,
+TYPE_THRESHOLD_v4 => 5,
 };
 
 sub max ($$) { $_[$_[0] < $_[1]] }
@@ -72,6 +74,18 @@ my ($identifier, $address, $host, $uri) = @_;
     return $permit;
 }
 
+sub thrasher_query_v4($$$$$) {
+my ($identifier, $address, $host, $uri, $reason) = @_;
+
+    my $addr = inet_aton($address);
+    my $data = pack("CnNa*nna*a*a*", TYPE_THRESHOLD_v4, length($reason), $identifier, $addr, length($uri), length($host), $uri, $host, $reason);
+    $main::thrasher->syswrite($data);
+    $main::thrasher->read(my $buf, 5, 0);
+    my ($id, $permit) = unpack("NC", $buf);
+    die "$id != $identifier" if ($id != $identifier);
+    return $permit;
+}
+
 sub thrasherd_http_holddowns {
     my %holddowns;
     my $content = get("http://localhost:54321/holddowns");
@@ -83,6 +97,14 @@ sub thrasherd_http_holddowns {
         $holddowns{$ip} = {trigger => $trigger, count => $count, velocity=> $velocity, timeout => $timeout, hardTimeout => $hardto, recentTimeout => $recentto};
     }
     return %holddowns;
+}
+
+sub thrasherd_http_holddowns_html {
+    my %holddowns;
+    my $content = get("http://localhost:54321/holddowns.html");
+    my $te = HTML::TableExtract->new();
+    $te->parse($content);
+    return $te->rows;
 }
 
 sub thrasherd_http_config {
@@ -112,6 +134,13 @@ sub thrasherd_http_connections {
     return %connections;
 }
 
+sub thrasherd_http_connections_html {
+    my $content = get("http://localhost:54321/connections.html");
+    my $te = HTML::TableExtract->new();
+    $te->parse($content);
+    return $te->rows;
+}
+
 sub thrasherd_http_addrs {
     my %addrs;
     my $content = get("http://localhost:54321/addrs");
@@ -123,6 +152,13 @@ sub thrasherd_http_addrs {
         $addrs{$ip} = {connections => $connections, timeout => $timeout};
     }
     return %addrs;
+}
+
+sub thrasherd_http_addrs_html {
+    my $content = get("http://localhost:54321/addrs.html");
+    my $te = HTML::TableExtract->new();
+    $te->parse($content);
+    return $te->rows;
 }
 
 sub thrasherd_http_uris {
@@ -138,6 +174,13 @@ sub thrasherd_http_uris {
     return %uris;
 }
 
+sub thrasherd_http_uris_html {
+    my $content = get("http://localhost:54321/uris.html");
+    my $te = HTML::TableExtract->new();
+    $te->parse($content);
+    return $te->rows;
+}
+
 sub thrasherd_http_hosts {
     my %hosts;
     my $content = get("http://localhost:54321/hosts");
@@ -149,6 +192,13 @@ sub thrasherd_http_hosts {
         $hosts{"$ip:$host"} = {connections => $connections, timeout => $timeout};
     }
     return %hosts;
+}
+
+sub thrasherd_http_hosts_html {
+    my $content = get("http://localhost:54321/hosts.html");
+    my $te = HTML::TableExtract->new();
+    $te->parse($content);
+    return $te->rows;
 }
 
 ######################################################################
@@ -233,6 +283,11 @@ $main::connDate = $connections{"127.0.0.1:$main::sockport"}->{connDate};
 thrasher_add("10.10.10.10");
 thrasher_add("1.2.3.4");
 
+my @table = thrasherd_http_holddowns_html();
+is_deeply ($table[0], ["Blocked IP","Country","Triggered By","Count","Velocity","Soft","Hard","Recent","Reason","Actions"], "B:0");
+is_deeply ($table[1], ["1.2.3.4","Australia","255.255.255.255","0","N/A","5","9","N/A","inject","Unblock"], "B:1");
+is_deeply ($table[2], ["10.10.10.10"," ","255.255.255.255","0","N/A","5","9","N/A","inject","Unblock"], "B:2");
+
 sleep(1);
 
 %connections = thrasherd_http_connections();
@@ -248,8 +303,22 @@ is (thrasher_query_v2("1.2.3.4"), 1);
 is (thrasher_query_v2("4.3.2.1"), 0);
 is (thrasher_query_v3(1, "10.10.10.10", "host3", "/uri3"), 1);
 is (thrasher_query_v3(2, "1.2.3.4", "host3", "/uri3"), 1);
-is (thrasher_query_v3(3, "4.3.2.1", "host3", "/uri3"), 0);
+is (thrasher_query_v4(3, "4.3.2.1", "host3", "/uri3", "test1"), 0);
 is (thrasher_query_v3(0, "10.10.10.10", "host3", "/uri3"), 1); #Bug: Test id=0 with v3
+
+@table = thrasherd_http_addrs_html();
+is_deeply($table[0], [ 'Address', 'Country', 'Connections', 'Timeout', 'Reason', 'Actions' ], "A:0");
+is_deeply($table[1], [ '4.3.2.1', 'United States', '1', '14', ' ', 'Remove Block' ], "A:1");
+
+@table = thrasherd_http_uris_html();
+is_deeply($table[0], [ 'Address', 'Country', 'Connections', 'Timeout', 'Reason', 'URI (80 char max)', 'Actions' ], "U:0");
+is_deeply($table[1], [ '4.3.2.1', 'United States', '1', '10', ' ', '/uri1', 'Remove Block' ], "U:1");
+is_deeply($table[2], [ '4.3.2.1', 'United States', '1', '10', 'test1', '/uri3', 'Remove Block' ], "U:2");
+
+@table = thrasherd_http_hosts_html();
+is_deeply($table[0], [ 'Address', 'Country', 'Connections', 'Timeout', 'Reason', 'Host (80 char max)', 'Actions' ], "H:0");
+is_deeply($table[1], [ '4.3.2.1', 'United States', '1', '12', 'test1', 'host3', 'Remove Block' ], "H:1");
+is_deeply($table[2], [ '4.3.2.1', 'United States', '1', '12', ' ', 'host1', 'Remove Block' ], "H:2");
 
 my %holddowns = thrasherd_http_holddowns();
 is($holddowns{"1.2.3.4"}->{count}, 3);
@@ -264,8 +333,6 @@ cmp_ok($holddowns{"10.10.10.10"}->{velocity}, '<=', 1000);
 cmp_ok($holddowns{"10.10.10.10"}->{timeout}, '>=', $softtimeout-1);
 is($holddowns{"10.10.10.10"}->{recentTimeout}, "N/A");
 is($holddowns{"4.3.2.1"}, undef);
-
-sleep(1);
 
 # Check *_table items
 %addrs = thrasherd_http_addrs();

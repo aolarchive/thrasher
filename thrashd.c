@@ -89,11 +89,15 @@ reset_query(query_t * query)
         free(query->uri);
     if (query->host)
         free(query->host);
+    if (query->reason)
+        free(query->reason);
 
     query->uri = NULL;
     query->host = NULL;
+    query->reason = NULL;
     query->uri_len = 0;
     query->host_len = 0;
+    query->reason_len = 0;
 }
 
 void
@@ -411,12 +415,14 @@ expire_stats_node(int sock, short which, qstats_t * stat_node)
      */
     g_hash_table_remove(stat_node->table, stat_node->key);
 
+    if (stat_node->reason)
+        free(stat_node->reason);
     free(stat_node->key);
     free(stat_node);
 }
 
 blocked_node_t *
-block_addr(client_conn_t * conn, uint32_t addr)
+block_addr(client_conn_t * conn, uint32_t addr, const char *reason)
 {
     blocked_node_t *bnode;
     struct timeval  tv;
@@ -424,12 +430,10 @@ block_addr(client_conn_t * conn, uint32_t addr)
     /*
      * create a new blocked node structure
      */
-    if (!(bnode = malloc(sizeof(blocked_node_t)))) {
+    if (!(bnode = calloc(sizeof(blocked_node_t), 1))) {
         LOG(logfile, "Out of memory: %s", strerror(errno));
         exit(1);
     }
-
-    memset(bnode, 0, sizeof(blocked_node_t));
 
     if (conn && conn->last_time.tv_sec)
         bnode->last_time = conn->last_time;
@@ -438,6 +442,8 @@ block_addr(client_conn_t * conn, uint32_t addr)
 
     bnode->saddr = addr;
     bnode->count = 1;
+    if (reason)
+        bnode->reason = strdup(reason);
 
     if (conn)
         bnode->first_seen_addr = conn->conn_addr;
@@ -484,7 +490,7 @@ block_addr(client_conn_t * conn, uint32_t addr)
 }
 
 qstats_t       *
-create_stats_node(uint32_t saddr, const char *key, GHashTable * tbl)
+create_stats_node(uint32_t saddr, const char *key, const char *reason, GHashTable * tbl)
 {
     qstats_t       *snode;
 
@@ -498,13 +504,15 @@ create_stats_node(uint32_t saddr, const char *key, GHashTable * tbl)
 
     snode->saddr = saddr;
     snode->key = strdup(key);
+    if (reason)
+        snode->reason = strdup(reason);
     snode->table = tbl;
 
     return snode;
 }
 
 int
-update_thresholds(client_conn_t * conn, char *key, stat_type_t type, block_ratio_t *ratio)
+update_thresholds(client_conn_t * conn, const char *key, stat_type_t type, block_ratio_t *ratio)
 {
     GHashTable     *table;
     qstats_t       *stats;
@@ -530,7 +538,7 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type, block_ratio
         /*
          * create a new statistics table for this type
          */
-        if (!(stats = create_stats_node(conn->query.saddr, key, table)))
+        if (!(stats = create_stats_node(conn->query.saddr, key, conn->query.reason, table)))
             return -1;
 
         /*
@@ -564,7 +572,7 @@ update_thresholds(client_conn_t * conn, char *key, stat_type_t type, block_ratio
         char           *blockedaddr;
         char           *triggeraddr;
 
-        bnode = block_addr(conn, stats->saddr);
+        bnode = block_addr(conn, stats->saddr, stats->reason);
 
         blockedaddr = strdup(inet_ntoa(*(struct in_addr *) &bnode->saddr));
         triggeraddr =
@@ -746,6 +754,7 @@ do_thresholding(client_conn_t * conn)
 
     case TYPE_THRESHOLD_v1:
     case TYPE_THRESHOLD_v3:
+    case TYPE_THRESHOLD_v4:
         ukeylen = conn->query.uri_len + 14;
 
         if (!(ukey = calloc(ukeylen, 1))) {
@@ -833,7 +842,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
          * else make it only 1 byte
          */
         initialize_iov(&conn->data,
-                       conn->type == TYPE_THRESHOLD_v3 ?
+                       (conn->type == TYPE_THRESHOLD_v3 || conn->type == TYPE_THRESHOLD_v4) ?
                        sizeof(uint32_t) +
                        sizeof(uint8_t) : sizeof(uint8_t));
 
@@ -846,7 +855,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
     LOG(logfile, "saddr %u block stats: %d\n", conn->query.saddr, blocked);
 #endif
 
-    if (conn->type == TYPE_THRESHOLD_v3) {
+    if (conn->type == TYPE_THRESHOLD_v3 || conn->type == TYPE_THRESHOLD_v4) {
         memcpy(conn->data.buf, &conn->id, sizeof(uint32_t));
         conn->data.buf[4] = blocked;
     } else
@@ -883,13 +892,13 @@ client_read_payload(int sock, short which, client_conn_t * conn)
     int             ioret;
 
 #if DEBUG
-    LOG(logfile, "%d %d", conn->query.uri_len, conn->query.host_len);
+    LOG(logfile, "%d %d %d", conn->query.uri_len, conn->query.host_len, conn->query.reason_len);
 #endif
     reset_connection_timeout(conn, connection_timeout);
 
     if (!conn->data.buf)
         initialize_iov(&conn->data,
-                       conn->query.uri_len + conn->query.host_len);
+                       conn->query.uri_len + conn->query.host_len + conn->query.reason_len);
 
     ioret = read_iov(&conn->data, sock);
 
@@ -905,6 +914,7 @@ client_read_payload(int sock, short which, client_conn_t * conn)
         return;
     }
 
+    /* Read Query */ 
     conn->query.uri = calloc(conn->query.uri_len + 1, 1);
 
     if (!conn->query.uri) {
@@ -912,6 +922,9 @@ client_read_payload(int sock, short which, client_conn_t * conn)
         exit(1);
     }
 
+    memcpy(conn->query.uri, conn->data.buf, conn->query.uri_len);
+
+    /* Read Host */ 
     conn->query.host = calloc(conn->query.host_len + 1, 1);
 
     if (!conn->query.host) {
@@ -919,22 +932,77 @@ client_read_payload(int sock, short which, client_conn_t * conn)
         exit(1);
     }
 
-    memcpy(conn->query.uri, conn->data.buf, conn->query.uri_len);
-
     memcpy(conn->query.host,
            &conn->data.buf[conn->query.uri_len], conn->query.host_len);
+
+    /* Read Reason */ 
+    if (conn->query.reason_len) {
+        conn->query.reason = calloc(conn->query.reason_len + 1, 1);
+
+        if (!conn->query.reason) {
+            LOG(logfile, "Out of memory: %s", strerror(errno));
+            exit(1);
+        }
+
+        memcpy(conn->query.reason,
+               &conn->data.buf[conn->query.uri_len + conn->query.host_len], conn->query.reason_len);
+    }
 
     reset_iov(&conn->data);
 
 #ifdef DEBUG
-    LOG(logfile, "host: '%s' uri: '%s'", conn->query.host,
-        conn->query.uri);
+    LOG(logfile, "host: '%s' uri: '%s' reason: '%s'", conn->query.host, conn->query.uri, conn->query.reason?conn->query.reason:"(none)");
 #endif
 
     event_set(&conn->event, sock, EV_WRITE,
               (void *) client_process_data, conn);
     event_add(&conn->event, 0);
 
+}
+
+void
+client_read_v4_header(int sock, short which, client_conn_t * conn)
+{
+    /*
+     * version 4 header includes an extra 16 bit field at the start of
+     * the packet. This contains the reason length, which is added to the end.
+     * Otherwise it's just like v3
+     */
+    int             ioret;
+
+    reset_connection_timeout(conn, connection_timeout);
+
+    if (!conn->data.buf)
+        initialize_iov(&conn->data, sizeof(uint16_t));
+
+    ioret = read_iov(&conn->data, sock);
+
+    if (ioret < 0) {
+        free_client_conn(conn);
+        return;
+    }
+
+    if (ioret > 0) {
+        event_set(&conn->event, sock, EV_READ,
+                  (void *) client_read_v4_header, conn);
+        event_add(&conn->event, 0);
+        return;
+    }
+
+    memcpy(&conn->query.reason_len, conn->data.buf, sizeof(uint16_t));
+    conn->query.reason_len = ntohs(conn->query.reason_len);
+    reset_iov(&conn->data);
+
+#ifdef DEBUG
+    LOG(logfile, "Got reason len %u", ntohl(conn->id));
+#endif
+
+    /*
+     * go back to reading a v3 like packet
+     */
+    event_set(&conn->event, sock, EV_READ,
+              (void *) client_read_v3_header, conn);
+    event_add(&conn->event, 0);
 }
 
 void
@@ -1131,7 +1199,7 @@ client_read_injection(int sock, short which, client_conn_t * conn)
              */
             evtimer_del(&bnode->recent_block_timeout);
         } else
-            bnode = block_addr(NULL, saddr);
+            bnode = block_addr(NULL, saddr, "inject");
 
         bnode->count = 0;
         bnode->first_seen_addr = 0xffffffff;
@@ -1210,6 +1278,14 @@ client_read_type(int sock, short which, client_conn_t * conn)
          */
         event_set(&conn->event, sock, EV_READ,
                   (void *) client_read_v3_header, conn);
+        event_add(&conn->event, 0);
+        break;
+    case TYPE_THRESHOLD_v4:
+        /*
+         * just like v3 but with a reason field
+         */
+        event_set(&conn->event, sock, EV_READ,
+                  (void *) client_read_v4_header, conn);
         event_add(&conn->event, 0);
         break;
     case TYPE_REMOVE:
@@ -1787,6 +1863,11 @@ gboolean save_data_current(gpointer key, blocked_node_t *bn, FILE *file)
     } else {
         FEXPORT_u32(file, event_remaining_seconds(&bn->hard_timeout));
     }
+    if (bn->reason) {
+        FEXPORT_str(file, bn->reason);
+    } else {
+        FEXPORT_u16(file, 0);
+    }
     return FALSE;
 }
 
@@ -1807,7 +1888,7 @@ save_data ()
         return;
     }
     FEXPORT_str(file, "thrasher");
-    FEXPORT_u16(file, 1); /* version */
+    FEXPORT_u16(file, 2); /* version */
     FEXPORT_u32(file, current_time.tv_sec);
 
     FEXPORT_u32(file, g_tree_nnodes(current_blocks));
@@ -1845,6 +1926,7 @@ load_data ()
     FILE          *file;
     char          *str;
     int            len;
+    int            reason_len;
     uint16_t       version;
     uint32_t       file_time;
     int32_t        time_diff;
@@ -1862,7 +1944,7 @@ load_data ()
 
     FIMPORT_str(file, str, len);
     FIMPORT_u16(file, version);
-    if (version != 1 || len != 8 || memcmp(str, "thrasher", len) != 0) {
+    if (version > 2 || len != 8 || memcmp(str, "thrasher", len) != 0) {
         fclose(file);
         LOG(logfile, "ERROR: Backup file corrupt%s", "");
         free(str);
@@ -1879,11 +1961,10 @@ load_data ()
         blocked_node_t *bn;
         struct timeval  tv;
 
-        if (!(bn = malloc(sizeof(blocked_node_t)))) {
+        if (!(bn = calloc(sizeof(blocked_node_t), 1))) {
             LOG(logfile, "Out of memory: %s", strerror(errno));
             exit(1);
         }
-        memset(bn, 0, sizeof(blocked_node_t));
 
         FIMPORT_u32(file, bn->saddr);
         FIMPORT_u32(file, bn->count);
@@ -1893,14 +1974,23 @@ load_data ()
         FIMPORT_u16(file, bn->ratio.timelimit);
         FIMPORT_u32(file, soft_timeout);
         FIMPORT_u32(file, hard_timeout);
+        if (version >= 2) {
+            FIMPORT_str(file, bn->reason, reason_len);
+            if (!reason_len)
+                bn->reason = 0;
+        }
 
         if (feof(file)) {
+            if (bn->reason);
+                free(bn->reason);
             free(bn);
             break;
         }
 
 
         if (soft_timeout <= time_diff) {
+            if (bn->reason);
+                free(bn->reason);
             free(bn);
             continue;
         }

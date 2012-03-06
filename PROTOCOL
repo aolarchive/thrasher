@@ -4,6 +4,7 @@ Types
     TYPE_INJECT       = 2
     TYPE_THRESHOLD_v2 = 3
     TYPE_THRESHOLD_v3 = 4
+    TYPE_THRESHOLD_v4 = 5
 
 
 TYPE_THRESHOLD_v1:
@@ -65,4 +66,49 @@ Query:
   host_len   host
 
 Reply:
+  u32        identifier
   u08        holddown
+
+TYPE_THRESHOLD_v4
+Query if in hold down state or not with an added reason
+
+Query:
+  u08        type = 5
+  u16        reason len
+  u32        identifier
+  u32        address
+  u16        uri len
+  u16        host len
+  uri_len    uri
+  host_len   host
+  reason_len reason
+
+Reply:
+  u32        identifier
+  u08        holddown
+
+
+
+BACKUP FILE
+Backup of the current holddowns
+
+u16          name_len = 8
+name_len     name = "thrasher"
+u16          version = 1 or 2
+u32          file create time seconds
+u32          num
+num          elements:
+  u32        saddr
+  u32        count
+  u32        element_time seconds
+  u32        triggered by addr
+  u16        ratio num connections
+  u16        ratio time limit
+  u32        soft_timeout
+  u32        hard_timeout
+# if version 2 or higher
+  u16        reason_len
+  reason_len reason
+
+
+  
