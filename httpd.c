@@ -463,7 +463,7 @@ httpd_put_hosts(struct evhttp_request *req, void *args)
 void
 httpd_put_html_start(struct evbuffer *buf, char *title, gboolean table)
 {
-    evbuffer_add_printf(buf, "<head><title>Thrashd - %s</title></head>", title);
+    evbuffer_add_printf(buf, "<head><title>%s - Thrashd - %s</title></head>", process_name, title);
     evbuffer_add_printf(buf, "<body>");
     evbuffer_add_printf(buf, "<a href='/config.html'>Config</a>&nbsp;");
     evbuffer_add_printf(buf, "<a href='/connections.html'>Connections (%d)</a>&nbsp;", current_connections_count);
