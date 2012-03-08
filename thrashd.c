@@ -571,6 +571,7 @@ update_thresholds(client_conn_t * conn, const char *key, stat_type_t type, block
         blocked_node_t *bnode;
         char           *blockedaddr;
         char           *triggeraddr;
+        char            geoinfo[100];
 
         bnode = block_addr(conn, stats->saddr, stats->reason);
 
@@ -578,8 +579,15 @@ update_thresholds(client_conn_t * conn, const char *key, stat_type_t type, block
         triggeraddr =
             strdup(inet_ntoa(*(struct in_addr *) &bnode->first_seen_addr));
 
-        LOG(logfile, "type %d holding down address %s triggered by %s (%d >= %d) key %s",
-            type, blockedaddr, triggeraddr, stats->connections, ratio->num_connections, key);
+
+        geoinfo[0] = 0;
+#ifdef WITH_GEOIP
+        if (gi)
+            snprintf(geoinfo, sizeof(geoinfo), " [%s]", blankprint(GeoIP_country_name_by_ipnum(gi, ntohl(stats->saddr))));
+#endif
+
+        LOG(logfile, "type %d holding down address %s%s triggered by %s (%d >= %d) key %s",
+            type, blockedaddr, geoinfo, triggeraddr, stats->connections, ratio->num_connections, key);
 
         free(blockedaddr);
         free(triggeraddr);
@@ -1148,6 +1156,7 @@ client_read_injection(int sock, short which, client_conn_t * conn)
     blocked_node_t *bnode;
     uint32_t        saddr;
     int             ioret;
+    char            geoinfo[100];
 
     reset_connection_timeout(conn, connection_timeout);
 
@@ -1172,8 +1181,14 @@ client_read_injection(int sock, short which, client_conn_t * conn)
 
     switch (conn->type) {
     case TYPE_INJECT:
-        LOG(logfile, "type I holding down address %s triggered by injection", 
-            inet_ntoa(*(struct in_addr *) &saddr));
+        geoinfo[0] = 0;
+#ifdef WITH_GEOIP
+        if (gi)
+            snprintf(geoinfo, sizeof(geoinfo), " [%s]", blankprint(GeoIP_country_name_by_ipnum(gi, ntohl(saddr))));
+#endif
+
+        LOG(logfile, "type I holding down address %s%s triggered by injection", 
+            inet_ntoa(*(struct in_addr *) &saddr), geoinfo);
 
         /*
          * make sure the node doesn't already exist

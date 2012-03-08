@@ -42,7 +42,7 @@
       	fprintf(f,x,## s); \
       	fprintf(f,"\n");\
     } \
-} while(0);
+} while(0) /* no trailing ; */
 #endif
 
 #define LOG(f, x, ...) do { \
@@ -58,7 +58,7 @@
         fprintf(f,"\n");\
 	fflush(f); \
     } \
-} while(0);
+} while(0) /* no trailing ; */
 
 typedef enum {
     TYPE_THRESHOLD_v1 = 0, 
@@ -227,3 +227,4 @@ void syslog_init(char *facility);
 void daemonize(const char *path);
 
 uint32_t event_remaining_seconds(struct event *ev);
+const char *blankprint(const char *str);
