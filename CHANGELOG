@@ -1,3 +1,8 @@
+1.0r29 changes
+    * Support v4 query with reason
+    * Display reason in html interface
+    * Display process name in html title
+
 1.0r28 changes
     * Added counts to the html header
     * Added favicon from William
