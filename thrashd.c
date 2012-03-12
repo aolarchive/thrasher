@@ -1002,7 +1002,7 @@ client_read_v4_header(int sock, short which, client_conn_t * conn)
     reset_iov(&conn->data);
 
 #ifdef DEBUG
-    LOG(logfile, "Got reason len %u", ntohl(conn->id));
+    LOG(logfile, "reason len %u", conn->query.reason_len);
 #endif
 
     /*
