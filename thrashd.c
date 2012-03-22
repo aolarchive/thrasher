@@ -146,7 +146,6 @@ void increase_limits()
     struct rlimit l;
     getrlimit(RLIMIT_NOFILE, &l);
     if (l.rlim_cur != l.rlim_max) {
-        LOG(logfile, "Changed nofile limit from %d to %d", (int)l.rlim_cur, (int)l.rlim_max);
         l.rlim_cur = l.rlim_max;
         setrlimit(RLIMIT_NOFILE, &l);
     }
