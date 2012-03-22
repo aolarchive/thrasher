@@ -1,3 +1,6 @@
+1.0r30 changes
+    * Support reverse proxy redirection for http interface
+
 1.0r29 changes
     * Support v4 query with reason
     * Display reason in html interface

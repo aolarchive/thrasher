@@ -36,6 +36,7 @@ extern char    *http_password;
 extern uint32_t debug;
 extern char    *ip_action_url;
 extern char    *config_filename;
+extern int      num_file_limits;
 
 extern block_ratio_t minimum_random_ratio;
 extern block_ratio_t maximum_random_ratio;
@@ -183,7 +184,7 @@ fill_http_blocks_html(void *key, blocked_node_t * val, struct evbuffer *buf)
     evbuffer_add_printf(buf, "<td>%s</td>", blankprint(val->reason));
 
     if (http_password)
-        evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeHolddown&key=%d\">Unblock</a></td>",*(uint32_t *)key);
+        evbuffer_add_printf(buf, "<td><a href=\"action?action=removeHolddown&key=%d\">Unblock</a></td>",*(uint32_t *)key);
     evbuffer_add_printf(buf, "</tr>");
      
     return FALSE;
@@ -267,7 +268,7 @@ fill_http_addr_html(void *key, qstats_t * val, struct evbuffer *buf)
     evbuffer_add_printf(buf, "<td>%s</td>", blankprint(val->reason));
 
     if (http_password)
-        evbuffer_add_printf(buf, "<td><a href=\"/action?action=removeAddr&key=%s\">Remove</a> <a href=\"/action?action=blockAddr&key=%s\">Block</a></td>", (char*)key, (char*)key);
+        evbuffer_add_printf(buf, "<td><a href=\"action?action=removeAddr&key=%s\">Remove</a> <a href=\"action?action=blockAddr&key=%s\">Block</a></td>", (char*)key, (char*)key);
     evbuffer_add_printf(buf, "</tr>");
 
     return FALSE;
@@ -332,7 +333,7 @@ fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf, char *ty
 
     if (http_password) {
         char *ukey = g_uri_escape_string(key, 0, 0);
-        evbuffer_add_printf(buf, "<td><a href=\"/action?action=remove%s&key=%s\">Remove</a> <a href=\"/action?action=block%s&key=%s\">Block</a></td>", type, (char*)ukey, type, (char*)ukey);
+        evbuffer_add_printf(buf, "<td><a href=\"action?action=remove%s&key=%s\">Remove</a> <a href=\"action?action=block%s&key=%s\">Block</a></td>", type, (char*)ukey, type, (char*)ukey);
         g_free(ukey);
     }
 
@@ -508,7 +509,7 @@ httpd_put_config(struct evhttp_request *req, void *args)
 
     if (args) {
         httpd_put_html_start(buf, "Config", FALSE);
-        evbuffer_add_printf(buf, "<td><a href=\"/action?action=reloadconfig&key=reloadconfig\">Reload Config</a></td>");
+        evbuffer_add_printf(buf, "<td><a href=\"action?action=reloadconfig&key=reloadconfig\">Reload Config</a></td>");
         evbuffer_add_printf(buf, "<pre>\n");
     }
 
@@ -538,6 +539,7 @@ httpd_put_config(struct evhttp_request *req, void *args)
 #ifdef WITH_GEOIP
     evbuffer_add_printf(buf, "  GeoIP File:            %s\n", (gi?geoip_file:"NOT SET"));
 #endif
+    evbuffer_add_printf(buf, "  Max num of sockets:    %d\n", num_file_limits);
     evbuffer_add_printf(buf, "\n");
 
     evbuffer_add_printf(buf, "  RBL Zone:              %s\n", rbl_zone?rbl_zone:"NULL");
@@ -717,7 +719,7 @@ httpd_action(struct evhttp_request *req, void *arg)
 
     char *action = (char *)evhttp_find_header(&args, "action");
     char *key = (char *)evhttp_find_header(&args, "key");
-    char *redir = "/config.html";
+    char *redir = "config.html";
 
     if (!action || !key) {
         evhttp_clear_headers(&args);
@@ -729,44 +731,44 @@ httpd_action(struct evhttp_request *req, void *arg)
         (int)((char *)colon-(char *)decoded), decoded, action, key);
 
     if (strcmp(action, "removeHolddown") == 0) {
-        redir = "/holddowns.html";
+        redir = "holddowns.html";
         uint32_t        saddr = atoi(key);
         blocked_node_t *bnode;
 
         if ((bnode = g_tree_lookup(current_blocks, &saddr)))
             expire_bnode(0, 0, bnode);
     } else if (strcmp(action, "removeAddr") == 0) {
-        redir = "/addrs.html";
+        redir = "addrs.html";
         qstats_t *stats = g_hash_table_lookup(addr_table, key);
         if (stats)
             expire_stats_node(0, 0, stats);
     } else if (strcmp(action, "blockAddr") == 0) {
-        redir = "/addrs.html";
+        redir = "addrs.html";
         qstats_t *stats = g_hash_table_lookup(addr_table, key);
         if (stats)
             block_addr(0, stats->saddr, "web:blockAddr");
     } else if (strcmp(action, "removeUri") == 0) {
-        redir = "/uris.html";
+        redir = "uris.html";
         qstats_t *stats = g_hash_table_lookup(uri_table, key);
         if (stats)
             expire_stats_node(0, 0, stats);
     } else if (strcmp(action, "blockUri") == 0) {
-        redir = "/uris.html";
+        redir = "uris.html";
         qstats_t *stats = g_hash_table_lookup(uri_table, key);
         if (stats)
             block_addr(0, stats->saddr, "web:blockUri");
     } else if (strcmp(action, "removeHost") == 0) {
-        redir = "/hosts.html";
+        redir = "hosts.html";
         qstats_t *stats = g_hash_table_lookup(host_table, key);
         if (stats)
             expire_stats_node(0, 0, stats);
     } else if (strcmp(action, "blockHost") == 0) {
-        redir = "/hosts.html";
+        redir = "hosts.html";
         qstats_t *stats = g_hash_table_lookup(host_table, key);
         if (stats)
             block_addr(0, stats->saddr, "web:blockHost");
     } else if (strcmp(action, "updateurl") == 0) {
-        redir = "/config.html";
+        redir = "config.html";
         block_ratio_t *request_uri_ratio = g_hash_table_lookup(uris_ratio_table, key);
         if (!request_uri_ratio) {
             request_uri_ratio = malloc(sizeof(block_ratio_t));
@@ -782,7 +784,7 @@ httpd_action(struct evhttp_request *req, void *arg)
             request_uri_ratio->timelimit = atoi(v);
 
     } else if (strcmp(action, "reloadconfig") == 0) {
-        redir = "/config.html";
+        redir = "config.html";
         load_config(TRUE);
     }
 

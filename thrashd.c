@@ -67,6 +67,7 @@ char           *config_filename;
 uint32_t        debug;
 char           *geoip_file;
 char           *ip_action_url;
+int             num_file_limits;
 
 uint32_t recently_blocked_timeout;
 block_ratio_t minimum_random_ratio;
@@ -143,10 +144,13 @@ void increase_limits()
 {
 
     struct rlimit l;
-
     getrlimit(RLIMIT_NOFILE, &l);
-    l.rlim_cur = l.rlim_max;
-    setrlimit(RLIMIT_NOFILE, &l);
+    if (l.rlim_cur != l.rlim_max) {
+        LOG(logfile, "Changed nofile limit from %d to %d", (int)l.rlim_cur, (int)l.rlim_max);
+        l.rlim_cur = l.rlim_max;
+        setrlimit(RLIMIT_NOFILE, &l);
+    }
+    num_file_limits = l.rlim_cur;
 }
 
 void
@@ -1485,7 +1489,9 @@ load_config(gboolean reload)
         LOG(logfile, "Reloading config: %s", config_filename);
 
     if (!g_key_file_load_from_file(config_file, config_filename, flags, &error)) {
-        LOG(logfile, "Error loading config: %s", error->message);
+        LOG(logfile, "Error loading config file (%s): %s", config_filename, error->message);
+        if (syslog_enabled)
+            fprintf(stderr, "Error loading config file (%s): %s\n", config_filename, error->message);
         if (reload)
             return;
         else
