@@ -466,12 +466,12 @@ httpd_put_html_start(struct evbuffer *buf, char *title, gboolean table)
 {
     evbuffer_add_printf(buf, "<head><title>%s - Thrashd - %s</title></head>", process_name, title);
     evbuffer_add_printf(buf, "<body>");
-    evbuffer_add_printf(buf, "<a href='/config.html'>Config</a>&nbsp;");
-    evbuffer_add_printf(buf, "<a href='/connections.html'>Connections (%d)</a>&nbsp;", current_connections_count);
-    evbuffer_add_printf(buf, "<a href='/holddowns.html'>Holddowns (%d)</a>&nbsp;", g_tree_nnodes(current_blocks));
-    evbuffer_add_printf(buf, "<a href='/addrs.html'>Addresses (%d)</a>&nbsp;", g_hash_table_size(addr_table));
-    evbuffer_add_printf(buf, "<a href='/hosts.html'>Hosts (%d)</a>&nbsp;", g_hash_table_size(host_table));
-    evbuffer_add_printf(buf, "<a href='/uris.html'>URIs (%d)</a>&nbsp;", g_hash_table_size(uri_table));
+    evbuffer_add_printf(buf, "<a href='config.html'>Config</a>&nbsp;");
+    evbuffer_add_printf(buf, "<a href='connections.html'>Connections (%d)</a>&nbsp;", current_connections_count);
+    evbuffer_add_printf(buf, "<a href='holddowns.html'>Holddowns (%d)</a>&nbsp;", g_tree_nnodes(current_blocks));
+    evbuffer_add_printf(buf, "<a href='addrs.html'>Addresses (%d)</a>&nbsp;", g_hash_table_size(addr_table));
+    evbuffer_add_printf(buf, "<a href='hosts.html'>Hosts (%d)</a>&nbsp;", g_hash_table_size(host_table));
+    evbuffer_add_printf(buf, "<a href='uris.html'>URIs (%d)</a>&nbsp;", g_hash_table_size(uri_table));
     evbuffer_add_printf(buf, "<hr>");
 
     evbuffer_add_printf(buf, "<script type=\"text/javascript\">\n");
