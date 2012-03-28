@@ -18,9 +18,11 @@
 #include <syslog.h>
 #include <glib.h>
 #include <sys/queue.h>
-#include <event.h>
-#include <evhttp.h>
-#include <evdns.h>
+#include <event2/event.h>
+#include <event2/event_struct.h>
+#include <event2/buffer.h>
+#include <event2/http.h>
+#include <event2/dns.h>
 #include <sys/types.h>
 #ifdef WITH_BGP
 #include "bgp.h"
@@ -66,7 +68,8 @@ typedef enum {
     TYPE_INJECT,
     TYPE_THRESHOLD_v2,
     TYPE_THRESHOLD_v3,
-    TYPE_THRESHOLD_v4
+    TYPE_THRESHOLD_v4,
+    TYPE_INJECT_v2 = 100
 } thrash_pkt_type;
 
 /***************************************
@@ -176,7 +179,7 @@ typedef enum {
     event_base_set(b, &a->event); } while(0);
 #define thrash_client_setident(a,b) do { a->ident = b; } while(0);
 
-thrash_client_t * init_thrash_client(void);
+thrash_client_t * init_thrash_client(struct event_base *b);
 int thrash_client_connect(thrash_client_t *cli);
 void thrash_client_read_resp(int sock, short which, thrash_client_t *cli);
 void thrash_client_write(int sock, short which, thrash_client_t *cli);
@@ -208,15 +211,6 @@ void client_read_v1_header(int sock, short which, client_conn_t * conn);
 void client_read_injection(int sock, short which, client_conn_t * conn);
 void client_read_type(int sock, short which, client_conn_t * conn);
 
-#if 0
-void fill_current_connections(client_conn_t * conn, struct evbuffer *buf);
-gboolean fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer *buf);
-void httpd_put_hips(struct evhttp_request *req, void *args);
-void httpd_put_connections(struct evhttp_request *req, void *args);
-void httpd_put_config(struct evhttp_request *req, void *args);
-void httpd_driver(struct evhttp_request *req, void *arg);
-int webserver_init(void);
-#endif
 
 void server_driver(int sock, short which, void *args);
 int server_init(void);
@@ -228,3 +222,11 @@ void daemonize(const char *path);
 
 uint32_t event_remaining_seconds(struct event *ev);
 const char *blankprint(const char *str);
+
+/***************************************
+ * bcast functions                     *
+ ***************************************/
+
+void thrash_bcast_init();
+void thrash_bcast_reset();
+void thrash_bcast_send(blocked_node_t *bnode);

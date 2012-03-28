@@ -5,6 +5,7 @@ Types
     TYPE_THRESHOLD_v2 = 3
     TYPE_THRESHOLD_v3 = 4
     TYPE_THRESHOLD_v4 = 5
+    TYPE_INJECT_v2    = 100
 
 
 TYPE_THRESHOLD_v1:
@@ -38,6 +39,17 @@ Add to hold down state
 Query:
   u08        type = 2
   u32        address
+Reply: 
+  None
+
+TYPE_INJECT_v2:
+Add to hold down state
+
+Query:
+  u08        type = 2
+  u32        address
+  u16        reason len
+  reason_len reason
 Reply: 
   None
 

@@ -1,4 +1,5 @@
 #include "thrasher.h"
+#include "event2/http_struct.h"
 #include "version.h"
 #include <inttypes.h>
 #ifdef WITH_GEOIP
@@ -6,6 +7,8 @@
 extern GeoIP *gi;
 extern char *geoip_file;
 #endif
+
+extern struct event_base *base;
 
 extern int     syslog_enabled;
 extern FILE    *logfile;
@@ -37,6 +40,8 @@ extern uint32_t debug;
 extern char    *ip_action_url;
 extern char    *config_filename;
 extern int      num_file_limits;
+extern uint32_t max_qps;
+extern time_t   max_qps_time;
 
 extern block_ratio_t minimum_random_ratio;
 extern block_ratio_t maximum_random_ratio;
@@ -578,6 +583,9 @@ httpd_put_config(struct evhttp_request *req, void *args)
     evbuffer_add_printf(buf,
                         "%d addresses currently in hold-down (%u qps)\n",
                         g_tree_nnodes(current_blocks), qps_last);
+    evbuffer_add_printf(buf,
+                        "Max QPS %d (%15.15s)\n", max_qps, ctime(&max_qps_time)+4);
+
     evbuffer_add_printf(buf, "Total connections blocked: %"PRIu64"\n",
                         total_blocked_connections);
     evbuffer_add_printf(buf, "Total queries recv: %"PRIu64"\n", total_queries);
@@ -844,9 +852,12 @@ int
 webserver_init(void)
 {
     struct evhttp  *httpd;
-    httpd = evhttp_start(bind_addr, server_port);
+    httpd = evhttp_new(base);
 
     if (httpd == NULL)
+        return -1;
+
+    if (evhttp_bind_socket(httpd, bind_addr, server_port) == -1)
         return -1;
 
 #ifdef WITH_GEOIP

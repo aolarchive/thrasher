@@ -1,5 +1,9 @@
 #include "thrasher.h"
 
+
+extern struct event_base *base;
+extern struct evdns_base *dnsbase;
+
 extern int      rbl_queries;
 extern int      rbl_max_queries;
 extern uint32_t rbl_negcache_timeout;
@@ -63,7 +67,7 @@ get_rbl_answer(int result, char type, int count, int ttl,
         tv.tv_sec = rbl_negcache_timeout;
         tv.tv_usec = 0;
 
-        evtimer_set(&rnode->timeout, (void *) expire_rbl_negcache, rnode);
+        evtimer_assign(&rnode->timeout, base, (void *) expire_rbl_negcache, rnode);
         evtimer_add(&rnode->timeout, &tv);
 
         g_tree_insert(rbl_negative_cache, &rnode->addr, rnode);
@@ -142,7 +146,7 @@ make_rbl_query(uint32_t addr)
     memcpy(addrarg, &addr, sizeof(uint32_t));
 
     rbl_queries += 1;
-    evdns_resolve_ipv4(query, 0,
+    evdns_base_resolve_ipv4(dnsbase, query, 0,
                        (void *) get_rbl_answer, (void *) addrarg);
 
     free(query);

@@ -17,18 +17,23 @@
 static thrash_pkt_type pkt_type;
 static char    *thrashd_host;
 static int      thrashd_port;
+client_query_t *query;
 
 void
 globals_init(void)
 {
-    pkt_type = TYPE_INJECT;
+    pkt_type     = TYPE_INJECT;
     thrashd_host = "127.0.0.1";
     thrashd_port = 1972;
+    query        = NULL;
 }
 
 static char     help[] =
-    " -i: INJECT Addr\n"
-    " -r: REMOVE Addr\n" " -s <thrashd addr>\n" " -p <thrashd port>\n";
+    " -i INJECT Addresses\n"
+    " -r REMOVE Addresses\n" 
+    " -d <short inject reason>\n" 
+    " -s <thrashd addr>\n" 
+    " -p <thrashd port>\n";
 
 int
 parse_args(int argc, char **argv)
@@ -36,7 +41,7 @@ parse_args(int argc, char **argv)
     int             c;
     int             jmp = 1;
 
-    while ((c = getopt(argc, argv, "irs:p:h")) != -1) {
+    while ((c = getopt(argc, argv, "ird:s:p:h")) != -1) {
         switch (c) {
         case 'i':
             pkt_type = TYPE_INJECT;
@@ -45,6 +50,13 @@ parse_args(int argc, char **argv)
         case 'r':
             pkt_type = TYPE_REMOVE;
             jmp++;
+            break;
+        case 'd':
+            pkt_type = TYPE_INJECT_v2;
+            query = calloc(sizeof(*query), 1);
+            query->reason = optarg;
+            query->reason_len = strlen(optarg);
+            jmp+=2;
             break;
         case 's':
             thrashd_host = optarg;
@@ -91,8 +103,8 @@ main(int argc, char **argv)
         exit(1);
     }
 
-    base = event_init();
-    lc = init_thrash_client();
+    base = event_base_new();
+    lc = init_thrash_client(base);
     lc->evbase = base;
     lc->resp_cb = resp_callback;
     lc->port = thrashd_port;
@@ -102,7 +114,7 @@ main(int argc, char **argv)
 
     for (i = 0; i < argc; i++) {
         printf("%s\n", argv[i]);
-        thrash_client_lookup(lc, inet_addr(argv[i]), NULL);
+        thrash_client_lookup(lc, inet_addr(argv[i]), query);
         event_base_loop(base, 0);
     }
 

@@ -1,3 +1,9 @@
+1.1r1
+    * First pass at upgrading to libevent2
+    * Added new inject with reason
+    * Display max qps
+    * Support broadcasting hold downs to other thrashd servers
+
 1.0r30 changes
     * Support reverse proxy redirection for http interface
 

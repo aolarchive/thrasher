@@ -4,7 +4,7 @@
 use strict;
 use IO::Socket;
 use LWP::Simple;
-use Test::More tests => 103;
+use Test::More tests => 107;
 use File::Temp qw/tempfile/;
 use Data::Dumper;
 use HTML::TableExtract;
@@ -16,6 +16,7 @@ TYPE_INJECT       => 2,
 TYPE_THRESHOLD_v2 => 3,
 TYPE_THRESHOLD_v3 => 4,
 TYPE_THRESHOLD_v4 => 5,
+TYPE_INJECT_v2    => 100,
 };
 
 sub max ($$) { $_[$_[0] < $_[1]] }
@@ -36,11 +37,19 @@ my ($address, $host, $uri) = @_;
     return unpack("C", $buf);
 }
 
-sub thrasher_add($) {
+sub thrasher_inject($) {
 my ($address) = @_;
 
     my $addr = inet_aton($address);
     my $data = pack("Ca*", TYPE_INJECT, $addr);
+    $main::thrasher->syswrite($data);
+}
+
+sub thrasher_inject_v2($$) {
+my ($address, $reason) = @_;
+
+    my $addr = inet_aton($address);
+    my $data = pack("Ca*na*", TYPE_INJECT_v2, $addr, length($reason), $reason);
     $main::thrasher->syswrite($data);
 }
 
@@ -102,6 +111,14 @@ sub thrasherd_http_holddowns {
 sub thrasherd_http_holddowns_html {
     my %holddowns;
     my $content = get("http://localhost:54321/holddowns.html");
+    my $te = HTML::TableExtract->new();
+    $te->parse($content);
+    return $te->rows;
+}
+
+sub thrasherd2_http_holddowns_html {
+    my %holddowns;
+    my $content = get("http://localhost:55321/holddowns.html");
     my $te = HTML::TableExtract->new();
     $te->parse($content);
     return $te->rows;
@@ -280,12 +297,12 @@ ok (exists $connections{"127.0.0.1:$main::sockport"}->{connDate});
 $main::connDate = $connections{"127.0.0.1:$main::sockport"}->{connDate};
 
 # First test adding ips to holddown
-thrasher_add("10.10.10.10");
-thrasher_add("1.2.3.4");
+thrasher_inject("10.10.10.10");
+thrasher_inject_v2("1.2.3.4", "test reason");
 
 my @table = thrasherd_http_holddowns_html();
 is_deeply ($table[0], ["Blocked IP","Country","Triggered By","Count","Velocity","Soft","Hard","Recent","Reason","Actions"], "B:0");
-is_deeply ($table[1], ["1.2.3.4","Australia","255.255.255.255","0","N/A","5","9","N/A","inject","Unblock"], "B:1");
+is_deeply ($table[1], ["1.2.3.4","Australia","255.255.255.255","0","N/A","5","9","N/A","test reason","Unblock"], "B:1");
 is_deeply ($table[2], ["10.10.10.10"," ","255.255.255.255","0","N/A","5","9","N/A","inject","Unblock"], "B:2");
 
 sleep(1);
@@ -432,6 +449,18 @@ is ($holddowns{"1.2.3.4"}, undef);
 is ($addrs{"10.10.10.10"}, undef);
 is ($holddowns{"10.10.10.10"}, undef);
 
+# check that reason forward works
+for (my $i = 0; $i < 10; $i++) {
+    thrasher_query_v4(3, "4.3.2.1", "reasonhost", "/reasontest", "reason");
+}
+
+my @table = thrasherd2_http_holddowns_html();
+print Dumper(\@table);
+is_deeply ($table[0], ["Blocked IP","Country","Triggered By","Count","Velocity","Soft","Hard","Recent","Reason","Actions"], "C:0");
+is_deeply ($table[1], ["4.3.2.1","United States","255.255.255.255","0","N/A","59","99","N/A","default:reason","Unblock"], "C:1");
+is_deeply ($table[2], ["1.2.3.4","Australia","255.255.255.255","0","N/A","49","89","N/A","default:","Unblock"], "C:2");
+is_deeply ($table[3], ["10.10.10.10"," ","255.255.255.255","0","N/A","49","89","N/A","default:","Unblock"], "C:3");
+
 
 # Cleanup
 thrasher_remove("10.10.10.10");
@@ -440,6 +469,6 @@ thrasher_remove("4.3.2.1");
 sleep(1);
 
 my %connections = thrasherd_http_connections();
-is ($connections{"127.0.0.1:$main::sockport"}->{requests}, 635);
+is ($connections{"127.0.0.1:$main::sockport"}->{requests}, 645);
 is ($connections{"127.0.0.1:$main::sockport"}->{connDate}, $main::connDate);
 ok (exists $connections{"127.0.0.1:$main::sockport"}->{lastDate});

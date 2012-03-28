@@ -20,6 +20,9 @@ GeoIP *gi = 0;
  * blah
  */
 
+struct event_base *base;
+struct evdns_base *dnsbase;
+
 char           *process_name;
 uint32_t        uri_check;
 uint32_t        host_check;
@@ -33,6 +36,8 @@ block_ratio_t   uri_ratio;
 block_ratio_t   addr_ratio;
 struct event    server_event;
 int             server_port;
+uint32_t        max_qps;
+time_t          max_qps_time;
 uint32_t        qps;
 uint32_t        qps_last;
 struct event    qps_event;
@@ -67,6 +72,7 @@ char           *config_filename;
 uint32_t        debug;
 char           *geoip_file;
 char           *ip_action_url;
+gchar         **broadcasts;
 int             num_file_limits;
 
 uint32_t recently_blocked_timeout;
@@ -203,6 +209,7 @@ globals_init(void)
     velocity_num = 100;
     geoip_file = 0;
     ip_action_url = 0;
+    broadcasts = 0;
 #if DEBUG
     debug = 1;
 #else
@@ -241,7 +248,7 @@ reset_connection_timeout(client_conn_t * conn, uint32_t timeout)
 #endif
 
     evtimer_del(&conn->timeout);
-    evtimer_set(&conn->timeout, (void *) timeout_client, conn);
+    evtimer_assign(&conn->timeout, base, (void *) timeout_client, conn);
     evtimer_add(&conn->timeout, &tv);
 }
 
@@ -351,7 +358,7 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
         tv.tv_sec = recently_blocked_timeout;
         tv.tv_usec = 0;
 
-        evtimer_set(&bnode->recent_block_timeout,
+        evtimer_assign(&bnode->recent_block_timeout, base,
                     (void *) expire_recent_bnode, bnode);
         evtimer_add(&bnode->recent_block_timeout, &tv);
 
@@ -468,7 +475,7 @@ block_addr(client_conn_t * conn, uint32_t addr, const char *reason)
     tv.tv_sec = soft_block_timeout;
     tv.tv_usec = 0;
 
-    evtimer_set(&bnode->timeout, (void *) expire_bnode, bnode);
+    evtimer_assign(&bnode->timeout, base, (void *) expire_bnode, bnode);
     evtimer_add(&bnode->timeout, &tv);
 
 /* add our hard timeout, if the option is enabled */
@@ -476,7 +483,7 @@ block_addr(client_conn_t * conn, uint32_t addr, const char *reason)
         tv.tv_sec  = hard_block_timeout;
         tv.tv_usec = 0;
 
-        evtimer_set(&bnode->hard_timeout, (void *)expire_hard_bnode, bnode);
+        evtimer_assign(&bnode->hard_timeout, base, (void *)expire_hard_bnode, bnode);
         evtimer_add(&bnode->hard_timeout, &tv);
     }
 #ifdef WITH_BGP
@@ -488,6 +495,9 @@ block_addr(client_conn_t * conn, uint32_t addr, const char *reason)
     cm.community = 30;
     thrash_bgp_inject(addr, &cm, bgp_sock);
 #endif
+
+    if (conn)
+        thrash_bcast_send(bnode);
 
     return bnode;
 }
@@ -555,7 +565,7 @@ update_thresholds(client_conn_t * conn, const char *key, stat_type_t type, block
         tv.tv_sec = ratio->timelimit;
         tv.tv_usec = 0;
 
-        evtimer_set(&stats->timeout, (void *) expire_stats_node, stats);
+        evtimer_assign(&stats->timeout, base, (void *) expire_stats_node, stats);
         evtimer_add(&stats->timeout, &tv);
     }
     if (debug)
@@ -663,7 +673,7 @@ do_thresholding(client_conn_t * conn)
         tv.tv_usec = 0;
 
         evtimer_del(&bnode->timeout);
-        evtimer_set(&bnode->timeout, (void *) expire_bnode, bnode);
+        evtimer_assign(&bnode->timeout, base, (void *) expire_bnode, bnode);
         evtimer_add(&bnode->timeout, &tv);
 
         /*
@@ -712,8 +722,8 @@ do_thresholding(client_conn_t * conn)
              * recently_blocked list
              */
 
-            evtimer_set(&bnode->recent_block_timeout,
-                        (void *) expire_recent_bnode, bnode);
+            evtimer_assign(&bnode->recent_block_timeout, base,
+                           (void *) expire_recent_bnode, bnode);
             evtimer_add(&bnode->recent_block_timeout, &tv);
         }
 
@@ -739,7 +749,7 @@ do_thresholding(client_conn_t * conn)
             tv.tv_sec = soft_block_timeout;
             tv.tv_usec = 0;
 
-            evtimer_set(&bnode->timeout, (void *) expire_bnode, bnode);
+            evtimer_assign(&bnode->timeout, base, (void *) expire_bnode, bnode);
             evtimer_add(&bnode->timeout, &tv);
 
             return 1;
@@ -840,6 +850,69 @@ do_thresholding(client_conn_t * conn)
 }
 
 void
+do_injection(client_conn_t * conn)
+{
+    blocked_node_t *bnode;
+    char            geoinfo[100];
+
+    switch (conn->type) {
+    case TYPE_INJECT:
+    case TYPE_INJECT_v2:
+        geoinfo[0] = 0;
+#ifdef WITH_GEOIP
+        if (gi)
+            snprintf(geoinfo, sizeof(geoinfo), " [%s]", blankprint(GeoIP_country_name_by_ipnum(gi, ntohl(conn->query.saddr))));
+#endif
+
+        LOG(logfile, "type I holding down address %s%s triggered by injection", 
+            inet_ntoa(*(struct in_addr *) &conn->query.saddr), geoinfo);
+
+        /*
+         * make sure the node doesn't already exist
+         */
+        if ((bnode = g_tree_lookup(current_blocks, &conn->query.saddr))) {
+            bnode->count++;
+            total_blocked_connections++;
+            break;
+        }
+
+        /*
+         * this is starting to get a little hacky I think. We can re-factor
+         * if I ever end up doing any other types of features
+         */
+        if (recently_blocked &&
+            (bnode = g_tree_lookup(recently_blocked, &conn->query.saddr)))
+            /*
+             * remove the bnode from the recently blocked list
+             * so the bnode is now set to this instead of a new
+             * allocd version
+             */
+        {
+            g_tree_remove(recently_blocked, &conn->query.saddr);
+            /*
+             * unset the recently_blocked timeout
+             */
+            evtimer_del(&bnode->recent_block_timeout);
+        } else
+            bnode = block_addr(NULL, conn->query.saddr, (conn->query.reason_len?conn->query.reason:"inject"));
+
+        bnode->count = 0;
+        bnode->first_seen_addr = 0xffffffff;
+
+        break;
+
+    case TYPE_REMOVE:
+        if (!(bnode = g_tree_lookup(current_blocks, &conn->query.saddr)))
+            break;
+        expire_bnode(0, 0, bnode);
+        break;
+    }
+
+    reset_query(&conn->query);
+}
+
+
+void
 client_process_data(int sock, short which, client_conn_t * conn)
 {
     int             ioret;
@@ -880,7 +953,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
     }
 
     if (ioret > 0) {
-        event_set(&conn->event, sock, EV_WRITE,
+        event_assign(&conn->event, base, sock, EV_WRITE,
                   (void *) client_process_data, conn);
         event_add(&conn->event, 0);
         return;
@@ -892,7 +965,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
     /*
      * we've done all our work on this, go back to the beginning
      */
-    event_set(&conn->event, sock, EV_READ,
+    event_assign(&conn->event, base, sock, EV_READ,
               (void *) client_read_type, conn);
     event_add(&conn->event, 0);
 }
@@ -919,7 +992,7 @@ client_read_payload(int sock, short which, client_conn_t * conn)
     }
 
     if (ioret > 0) {
-        event_set(&conn->event, sock, EV_READ,
+        event_assign(&conn->event, base, sock, EV_READ,
                   (void *) client_read_payload, conn);
         event_add(&conn->event, 0);
         return;
@@ -965,7 +1038,7 @@ client_read_payload(int sock, short which, client_conn_t * conn)
     LOG(logfile, "host: '%s' uri: '%s' reason: '%s'", conn->query.host, conn->query.uri, conn->query.reason?conn->query.reason:"(none)");
 #endif
 
-    event_set(&conn->event, sock, EV_WRITE,
+    event_assign(&conn->event, base, sock, EV_WRITE,
               (void *) client_process_data, conn);
     event_add(&conn->event, 0);
 
@@ -994,8 +1067,8 @@ client_read_v4_header(int sock, short which, client_conn_t * conn)
     }
 
     if (ioret > 0) {
-        event_set(&conn->event, sock, EV_READ,
-                  (void *) client_read_v4_header, conn);
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_v4_header, conn);
         event_add(&conn->event, 0);
         return;
     }
@@ -1011,8 +1084,8 @@ client_read_v4_header(int sock, short which, client_conn_t * conn)
     /*
      * go back to reading a v3 like packet
      */
-    event_set(&conn->event, sock, EV_READ,
-              (void *) client_read_v3_header, conn);
+    event_assign(&conn->event, base, sock, EV_READ,
+                 (void *) client_read_v3_header, conn);
     event_add(&conn->event, 0);
 }
 
@@ -1039,8 +1112,8 @@ client_read_v3_header(int sock, short which, client_conn_t * conn)
     }
 
     if (ioret > 0) {
-        event_set(&conn->event, sock, EV_READ,
-                  (void *) client_read_v3_header, conn);
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_v3_header, conn);
         event_add(&conn->event, 0);
         return;
     }
@@ -1055,8 +1128,8 @@ client_read_v3_header(int sock, short which, client_conn_t * conn)
     /*
      * go back to reading a v1 like packet
      */
-    event_set(&conn->event, sock, EV_READ,
-              (void *) client_read_v1_header, conn);
+    event_assign(&conn->event, base, sock, EV_READ,
+                 (void *) client_read_v1_header, conn);
     event_add(&conn->event, 0);
 }
 
@@ -1079,8 +1152,8 @@ client_read_v2_header(int sock, short which, client_conn_t * conn)
     }
 
     if (ioret > 0) {
-        event_set(&conn->event, sock, EV_READ,
-                  (void *) client_read_v2_header, conn);
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_v2_header, conn);
         event_add(&conn->event, 0);
         return;
     }
@@ -1093,8 +1166,8 @@ client_read_v2_header(int sock, short which, client_conn_t * conn)
      * v2 allows us to just recv a source address, thus we can go directly
      * into processing the data
      */
-    event_set(&conn->event, sock, EV_WRITE,
-              (void *) client_process_data, conn);
+    event_assign(&conn->event, base, sock, EV_WRITE,
+                 (void *) client_process_data, conn);
     event_add(&conn->event, 0);
 }
 
@@ -1119,8 +1192,8 @@ client_read_v1_header(int sock, short which, client_conn_t * conn)
     }
 
     if (ioret > 0) {
-        event_set(&conn->event, sock, EV_READ,
-                  (void *) client_read_v1_header, conn);
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_v1_header, conn);
         event_add(&conn->event, 0);
         return;
     }
@@ -1133,7 +1206,7 @@ client_read_v1_header(int sock, short which, client_conn_t * conn)
     hostlen = ntohs(hostlen);
 
 #ifdef DEBUG
-    LOG(logfile, "saddr = %u", saddr);
+    LOG(logfile, "saddr = %s", inet_ntoa(*(struct in_addr *) &saddr));
     LOG(logfile, "ulen %d hlen %d", urilen, hostlen);
 #endif
 
@@ -1148,23 +1221,20 @@ client_read_v1_header(int sock, short which, client_conn_t * conn)
     conn->query.saddr = saddr;
     reset_iov(&conn->data);
 
-    event_set(&conn->event, sock, EV_READ,
-              (void *) client_read_payload, conn);
+    event_assign(&conn->event, base, sock, EV_READ,
+                 (void *) client_read_payload, conn);
     event_add(&conn->event, 0);
 }
 
 void
 client_read_injection(int sock, short which, client_conn_t * conn)
 {
-    blocked_node_t *bnode;
-    uint32_t        saddr;
     int             ioret;
-    char            geoinfo[100];
 
     reset_connection_timeout(conn, connection_timeout);
 
     if (!conn->data.buf)
-        initialize_iov(&conn->data, sizeof(uint32_t));
+        initialize_iov(&conn->data, sizeof(uint32_t) + conn->query.reason_len );
 
     ioret = read_iov(&conn->data, sock);
 
@@ -1174,72 +1244,112 @@ client_read_injection(int sock, short which, client_conn_t * conn)
     }
 
     if (ioret > 0) {
-        event_set(&conn->event, sock, EV_READ,
-                  (void *) client_read_injection, conn);
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_injection, conn);
         event_add(&conn->event, 0);
         return;
     }
 
-    memcpy(&saddr, conn->data.buf, sizeof(uint32_t));
+    memcpy(&conn->query.saddr, conn->data.buf, sizeof(uint32_t));
 
-    switch (conn->type) {
-    case TYPE_INJECT:
-        geoinfo[0] = 0;
-#ifdef WITH_GEOIP
-        if (gi)
-            snprintf(geoinfo, sizeof(geoinfo), " [%s]", blankprint(GeoIP_country_name_by_ipnum(gi, ntohl(saddr))));
-#endif
-
-        LOG(logfile, "type I holding down address %s%s triggered by injection", 
-            inet_ntoa(*(struct in_addr *) &saddr), geoinfo);
-
-        /*
-         * make sure the node doesn't already exist
-         */
-        if ((bnode = g_tree_lookup(current_blocks, &saddr))) {
-            bnode->count++;
-            total_blocked_connections++;
-            break;
-        }
-
-        /*
-         * this is starting to get a little hacky I think. We can re-factor
-         * if I ever end up doing any other types of features
-         */
-        if (recently_blocked &&
-            (bnode = g_tree_lookup(recently_blocked, &saddr)))
-            /*
-             * remove the bnode from the recently blocked list
-             * so the bnode is now set to this instead of a new
-             * allocd version
-             */
-        {
-            g_tree_remove(recently_blocked, &saddr);
-            /*
-             * unset the recently_blocked timeout
-             */
-            evtimer_del(&bnode->recent_block_timeout);
-        } else
-            bnode = block_addr(NULL, saddr, "inject");
-
-        bnode->count = 0;
-        bnode->first_seen_addr = 0xffffffff;
-
-        break;
-
-    case TYPE_REMOVE:
-        if (!(bnode = g_tree_lookup(current_blocks, &saddr)))
-            break;
-        expire_bnode(0, 0, bnode);
-        break;
-    }
-
+    do_injection(conn);
 
     reset_iov(&conn->data);
 
-    event_set(&conn->event, conn->sock, EV_READ,
-              (void *) client_read_type, conn);
+    event_assign(&conn->event, base, conn->sock, EV_READ,
+                 (void *) client_read_type, conn);
     event_add(&conn->event, 0);
+}
+
+void
+client_read_injection2_reason(int sock, short which, client_conn_t * conn)
+{
+    int             ioret;
+
+    reset_connection_timeout(conn, connection_timeout);
+
+    if (!conn->data.buf)
+        initialize_iov(&conn->data, conn->query.reason_len);
+
+    ioret = read_iov(&conn->data, sock);
+
+    if (ioret < 0) {
+        free_client_conn(conn);
+        return;
+    }
+
+    if (ioret > 0) {
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_injection2_reason, conn);
+        event_add(&conn->event, 0);
+        return;
+    }
+
+    /* Read Reason */ 
+    if (conn->query.reason_len) {
+        conn->query.reason = calloc(conn->query.reason_len + 1, 1);
+
+        if (!conn->query.reason) {
+            LOG(logfile, "Out of memory: %s", strerror(errno));
+            exit(1);
+        }
+
+        memcpy(conn->query.reason,
+               conn->data.buf, conn->query.reason_len);
+    }
+
+#ifdef DEBUG
+    LOG(logfile, "Got reason %s", conn->query.reason);
+#endif
+
+    do_injection(conn);
+
+    reset_iov(&conn->data);
+
+    event_assign(&conn->event, base, conn->sock, EV_READ,
+                 (void *) client_read_type, conn);
+    event_add(&conn->event, 0);
+}
+
+
+void
+client_read_injection2_header(int sock, short which, client_conn_t * conn)
+{
+    int             ioret;
+
+    reset_connection_timeout(conn, connection_timeout);
+
+    if (!conn->data.buf)
+        initialize_iov(&conn->data, sizeof(uint32_t) + sizeof(uint16_t) );
+
+    ioret = read_iov(&conn->data, sock);
+
+    if (ioret < 0) {
+        free_client_conn(conn);
+        return;
+    }
+
+    if (ioret > 0) {
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_injection2_header, conn);
+        event_add(&conn->event, 0);
+        return;
+    }
+
+    memcpy(&conn->query.saddr, conn->data.buf, sizeof(uint32_t));
+    memcpy(&conn->query.reason_len, conn->data.buf+4, sizeof(uint16_t));
+    conn->query.reason_len = ntohs(conn->query.reason_len);
+
+#ifdef DEBUG
+    LOG(logfile, "Got saddr %s and reason len %d", inet_ntoa(*(struct in_addr *) &conn->query.saddr), conn->query.reason_len);
+#endif
+
+    reset_iov(&conn->data);
+
+    event_assign(&conn->event, base, sock, EV_READ,
+                 (void *) client_read_injection2_reason, conn);
+    event_add(&conn->event, 0);
+
 }
 
 void
@@ -1281,38 +1391,43 @@ client_read_type(int sock, short which, client_conn_t * conn)
         /*
          * thresholding analysis with uri/host
          */
-        event_set(&conn->event, sock, EV_READ,
-                  (void *) client_read_v1_header, conn);
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_v1_header, conn);
         event_add(&conn->event, 0);
         break;
     case TYPE_THRESHOLD_v2:
         /*
          * thresholding for IP analysis only
          */
-        event_set(&conn->event, sock, EV_READ,
-                  (void *) client_read_v2_header, conn);
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_v2_header, conn);
         event_add(&conn->event, 0);
         break;
     case TYPE_THRESHOLD_v3:
         /*
          * just like v1 but with a 32bit identification header
          */
-        event_set(&conn->event, sock, EV_READ,
-                  (void *) client_read_v3_header, conn);
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_v3_header, conn);
         event_add(&conn->event, 0);
         break;
     case TYPE_THRESHOLD_v4:
         /*
          * just like v3 but with a reason field
          */
-        event_set(&conn->event, sock, EV_READ,
-                  (void *) client_read_v4_header, conn);
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_v4_header, conn);
         event_add(&conn->event, 0);
         break;
     case TYPE_REMOVE:
     case TYPE_INJECT:
-        event_set(&conn->event, sock, EV_READ,
-                  (void *) client_read_injection, conn);
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_injection, conn);
+        event_add(&conn->event, 0);
+        break;
+    case TYPE_INJECT_v2:
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_injection2_header, conn);
         event_add(&conn->event, 0);
         break;
     default:
@@ -1367,8 +1482,8 @@ server_driver(int sock, short which, void *args)
     current_connections =
         g_slist_prepend(current_connections, (gpointer) new_conn);
 
-    event_set(&new_conn->event, csock, EV_READ,
-              (void *) client_read_type, new_conn);
+    event_assign(&new_conn->event, base, csock, EV_READ,
+                 (void *) client_read_type, new_conn);
     event_add(&new_conn->event, 0);
 
     reset_connection_timeout(new_conn, connection_timeout);
@@ -1404,8 +1519,8 @@ server_init(void)
     if (listen(sock, 1024) < 0)
         return -1;
 
-    event_set(&server_event, sock, EV_READ | EV_PERSIST,
-              server_driver, NULL);
+    event_assign(&server_event, base, sock, EV_READ | EV_PERSIST,
+                 server_driver, NULL);
     event_add(&server_event, 0);
 
     return 0;
@@ -1428,6 +1543,7 @@ load_config(gboolean reload)
 
     typedef enum {
         _c_f_t_str = 1,
+        _c_f_t_strl,
         _c_f_t_int,
         _c_f_t_trie,
         _c_f_t_ratio,
@@ -1474,6 +1590,7 @@ load_config(gboolean reload)
         {"thrashd", "debug",                      _c_f_t_int,   &debug,                    TRUE},
         {"thrashd", "geoip-file",                 _c_f_t_str,   &geoip_file,               FALSE},
         {"thrashd", "ip-action-url",              _c_f_t_str,   &ip_action_url,            TRUE},
+        {"thrashd", "broadcasts",                 _c_f_t_strl,  &broadcasts,               TRUE},
 #ifdef WITH_BGP
         {"thrashd", "bgp-sock",                   _c_f_t_str,   &bgp_sockname,             FALSE},
 #endif
@@ -1535,8 +1652,14 @@ load_config(gboolean reload)
     }
 
 
+
+    if (broadcasts) {
+        thrash_bcast_reset();
+    }
+
     for (i = 0; c_f_in[i].parent != NULL; i++) {
         char          **svar;
+        gchar        ***ssvar;
         char           *str;
         FILE          **fvar;
         int            *ivar;
@@ -1544,6 +1667,7 @@ load_config(gboolean reload)
         block_ratio_t  *ratio;
         gchar         **splitter;
 	gboolean        boolean;
+        gsize           length;
 
         if (!g_key_file_has_key(config_file,
                                 c_f_in[i].parent, c_f_in[i].key, &error))
@@ -1559,6 +1683,14 @@ load_config(gboolean reload)
             *svar = g_key_file_get_string(config_file,
                                           c_f_in[i].parent,
                                           c_f_in[i].key, NULL);
+            break;
+        case _c_f_t_strl:
+            ssvar = (gchar ***) c_f_in[i].var;
+            *ssvar = g_key_file_get_string_list(config_file,
+                                                c_f_in[i].parent,
+                                                c_f_in[i].key, 
+                                                &length, 
+                                                NULL);
             break;
         case _c_f_t_trie:
 	    tvar = (GTree **) c_f_in[i].var;
@@ -1687,13 +1819,20 @@ qps_init(void)
     tv.tv_sec = 1;
     tv.tv_usec = 0;
 
-    evtimer_set(&qps_event, (void *) qps_reset, NULL);
+    evtimer_assign(&qps_event, base, (void *) qps_reset, NULL);
     evtimer_add(&qps_event, &tv);
 }
 
 void
 qps_reset(int sock, int which, void *args)
 {
+    if (qps > max_qps) {
+        struct timeval current_time;
+        evutil_gettimeofday(&current_time, NULL);
+
+        max_qps = qps;
+        max_qps_time = current_time.tv_sec;
+    }
     qps_last = qps;
     qps = 0;
 
@@ -1768,15 +1907,16 @@ rbl_init(void)
         return;
 
     if (rbl_ns)
-        evdns_nameserver_ip_add(rbl_ns);
+        evdns_base_nameserver_ip_add(dnsbase, rbl_ns);
     else
-        evdns_resolv_conf_parse(DNS_OPTION_NAMESERVERS,
-                                "/etc/resolv.conf");
+        evdns_base_resolv_conf_parse(dnsbase, 
+                                     DNS_OPTION_NAMESERVERS,
+                                     "/etc/resolv.conf");
 
-    evdns_set_option("timeout:", "1", DNS_OPTIONS_ALL);
-    evdns_set_option("max-timeouts:", "3", DNS_OPTIONS_ALL);
+    evdns_base_set_option(dnsbase, "timeout:", "1");
+    evdns_base_set_option(dnsbase, "max-timeouts:", "3");
 
-    if (evdns_count_nameservers() <= 0) {
+    if (evdns_base_count_nameservers(dnsbase) <= 0) {
         LOG(logfile, "Couldn't setup RBL server! %s", "");
 
         exit(1);
@@ -1932,7 +2072,7 @@ save_data_init(void)
     tv.tv_sec = 5*60;
     tv.tv_usec = 0;
 
-    evtimer_set(&backup_event, (void *) save_data_cb, NULL);
+    evtimer_assign(&backup_event, base, (void *) save_data_cb, NULL);
     evtimer_add(&backup_event, &tv);
 }
 
@@ -2023,14 +2163,14 @@ load_data ()
 
         g_tree_insert(current_blocks, &bn->saddr, bn);
 
-        evtimer_set(&bn->timeout, (void *) expire_bnode, bn);
+        evtimer_assign(&bn->timeout, base, (void *) expire_bnode, bn);
         evtimer_add(&bn->timeout, &tv);
 
         if (hard_timeout > 0) {
             tv.tv_sec  = hard_timeout - time_diff;
             tv.tv_usec = 0;
 
-            evtimer_set(&bn->hard_timeout, (void *)expire_hard_bnode, bn);
+            evtimer_assign(&bn->hard_timeout, base, (void *)expire_hard_bnode, bn);
             evtimer_add(&bn->hard_timeout, &tv);
         }
 
@@ -2099,6 +2239,7 @@ thrashd_init(void)
 {
     struct sigaction sa;
 
+    geoip_init();
     rbl_init();
     qps_init();
     randdata = g_rand_new();
@@ -2131,6 +2272,8 @@ thrashd_init(void)
             "ERROR: failed to ignore SIGPIPE: %s", strerror(errno));
         exit(1);
     }
+
+    thrash_bcast_init();
 
 
 }
@@ -2175,8 +2318,8 @@ main(int argc, char **argv)
     increase_limits();
     globals_init();
     parse_args(argc, argv);
-    event_init();
-    geoip_init();
+    base = event_base_new();
+    dnsbase = evdns_base_new(base, 0);
     thrashd_init();
     bgp_init();
     log_startup();
@@ -2188,7 +2331,7 @@ main(int argc, char **argv)
     if (rundaemon)
         daemonize("/tmp");
 
-    event_loop(0);
+    event_base_loop(base, 0);
 
     return 0;
 }

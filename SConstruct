@@ -2,7 +2,7 @@
 import os, sys
 import platform
 
-objects = ['iov.c', 'rbl.c', 'httpd.c']
+objects = ['iov.c', 'rbl.c', 'httpd.c', 'bcast.c']
 
 global env
 

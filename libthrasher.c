@@ -13,14 +13,18 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
-#include <event.h>
 #include "iov.h"
 #include "thrasher.h"
 
+
+static struct event_base *base;
+
 thrash_client_t *
-init_thrash_client(void)
+init_thrash_client(struct event_base *b)
 {
     thrash_client_t *ret;
+
+    base = b;
 
     ret = malloc(sizeof(*ret));
 
@@ -79,8 +83,9 @@ thrash_client_read_resp(int sock, short which, thrash_client_t * cli)
     tresp = malloc(sizeof(*tresp));
     assert(tresp != NULL);
 
-    if (cli->type == TYPE_THRESHOLD_v3) {
-        char           *data = malloc(5);
+    if (cli->type == TYPE_THRESHOLD_v3 ||
+        cli->type == TYPE_THRESHOLD_v4) {
+        char           data[5];
 
         bytes_read = recv(sock, data, 5, 0);
         assert(bytes_read == 5);
@@ -90,9 +95,7 @@ thrash_client_read_resp(int sock, short which, thrash_client_t * cli)
          */
         memcpy(&tresp->ident, data, 4);
         memcpy(&tresp->permit, &data[4], 1);
-
-        free(data);
-    } else if (cli->type == TYPE_INJECT || cli->type == TYPE_REMOVE) {
+    } else if (cli->type == TYPE_INJECT || cli->type == TYPE_INJECT_v2 || cli->type == TYPE_REMOVE) {
     } else {
         bytes_read = recv(sock, &resp, 1, 0);
         assert(bytes_read == 1);
@@ -115,19 +118,19 @@ thrash_client_write(int sock, short which, thrash_client_t * cli)
     }
 
     if (ioret > 0) {
-        event_set(&cli->event, sock, EV_WRITE,
+        event_assign(&cli->event, base, sock, EV_WRITE,
                   (void *) thrash_client_write, cli);
         event_add(&cli->event, 0);
     }
 
     reset_iov(&cli->data);
 
-    if (cli->type == TYPE_INJECT || cli->type == TYPE_REMOVE) {
+    if (cli->type == TYPE_INJECT || cli->type == TYPE_INJECT_v2 || cli->type == TYPE_REMOVE) {
         cli->resp_cb(cli, NULL);
         return;
     }
 
-    event_set(&cli->event, sock, EV_READ,
+    event_assign(&cli->event, base, sock, EV_READ,
               (void *) thrash_client_read_resp, (void *) cli);
     event_add(&cli->event, 0);
 }
@@ -225,6 +228,16 @@ thrash_client_lookup(thrash_client_t * cli, uint32_t addr, void *data)
         memcpy(cli->data.buf, &cli->type, 1);
         memcpy(&cli->data.buf[1], &addr, 4);
         break;
+    case TYPE_INJECT_v2 :
+        rlen = htons(q->reason_len);
+
+        initialize_iov(&cli->data, 7 + q->reason_len);
+
+        memcpy(cli->data.buf, &cli->type, 1);
+        memcpy(&cli->data.buf[1], &rlen, sizeof(uint16_t));
+        memcpy(&cli->data.buf[3], &addr, 4);
+        memcpy(&cli->data.buf[7], q->reason, q->reason_len);
+        break;
     case TYPE_THRESHOLD_v3:
         if (!q)
             return;
@@ -281,7 +294,7 @@ thrash_client_lookup(thrash_client_t * cli, uint32_t addr, void *data)
 
     cli->addr_lookup = addr;
 
-    event_set(&cli->event, cli->sock, EV_WRITE,
+    event_assign(&cli->event, base, cli->sock, EV_WRITE,
               (void *) thrash_client_write, cli);
     event_add(&cli->event, 0);
 }
@@ -333,7 +346,7 @@ main(int argc, char **argv)
     evbase = event_init();
 
     thrash_client_t *lc;
-    lc = init_thrash_client();
+    lc = init_thrash_client(evbase);
     lc->evbase = evbase;
     lc->resp_cb = resp_callback;
     thrash_client_sethost(lc, "127.0.0.1");
