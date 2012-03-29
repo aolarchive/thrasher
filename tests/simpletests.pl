@@ -455,7 +455,7 @@ for (my $i = 0; $i < 10; $i++) {
 }
 
 my @table = thrasherd2_http_holddowns_html();
-print Dumper(\@table);
+#print Dumper(\@table);
 is_deeply ($table[0], ["Blocked IP","Country","Triggered By","Count","Velocity","Soft","Hard","Recent","Reason","Actions"], "C:0");
 is_deeply ($table[1], ["4.3.2.1","United States","255.255.255.255","0","N/A","59","99","N/A","default:reason","Unblock"], "C:1");
 is_deeply ($table[2], ["1.2.3.4","Australia","255.255.255.255","0","N/A","49","89","N/A","default:","Unblock"], "C:2");
