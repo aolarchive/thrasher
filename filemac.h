@@ -14,7 +14,7 @@ do {                                                                  \
 do {                                                                  \
         uint16_t len = strlen(x);                                     \
         FEXPORT_u16(file, len);                                       \
-        fwrite(&x, len, 1, file);                                     \
+        fwrite(x, len, 1, file);                                      \
 } while (0)
 
 #define FIMPORT_u16(file,x)                                           \
