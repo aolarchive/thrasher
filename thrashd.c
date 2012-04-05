@@ -371,6 +371,9 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
         return;
     }
 
+    if (bnode->reason)
+        free(bnode->reason);
+
     free(bnode);
 }
 
@@ -406,6 +409,10 @@ expire_recent_bnode(int sock, short which, blocked_node_t * bnode)
 
     evtimer_del(&bnode->recent_block_timeout);
     g_tree_remove(recently_blocked, &bnode->saddr);
+
+    if (bnode->reason)
+        free(bnode->reason);
+
     free(bnode);
 }
 
@@ -649,12 +656,13 @@ do_thresholding(client_conn_t * conn)
         char connip[40], queryip[40];
         strcpy(connip, inet_ntoa(*(struct in_addr *) &conn->conn_addr));
         strcpy(queryip, inet_ntoa(*(struct in_addr *) &conn->query.saddr));
-        LOG(logfile, "Thresholding %d from %s for %s host %.*s uri %.*s",
+        LOG(logfile, "Thresholding %d from %s for %s host %.*s uri %.*s reason %.*s",
             conn->type,
             connip,
             queryip,
             conn->query.host_len, conn->query.host,
-            conn->query.uri_len, conn->query.uri);
+            conn->query.uri_len, conn->query.uri,
+            conn->query.reason_len, conn->query.reason);
     }
           
 

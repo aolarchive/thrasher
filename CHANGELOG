@@ -3,6 +3,7 @@
     * Added new inject with reason
     * Display max qps
     * Support broadcasting hold downs to other thrashd servers
+    * Fixed memory leak with bnode
 
 1.0r30 changes
     * Support reverse proxy redirection for http interface
