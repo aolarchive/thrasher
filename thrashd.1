@@ -132,5 +132,8 @@ to show IP to country information in the html view
 .IP "ip-action-url = <url>"
 When set, clicking on a ip in the html view will launch this url in a new tab
 .IP "broadcasts = <host1:port1[;host2:port2[;...]]>"
-When set any ip that is held down will be broadcasted to the other thrashers.  
+Semi colon seperated list of thrasher servers to broadcast held down ips to.
 All thrashers must be version 1.1 or above
+.IP "broadcasts-delay = <seconds>"
+Number of seconds to delay between broadcasting hold downs.  
+If set to 0 every hold down is broadcasted.

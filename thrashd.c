@@ -73,6 +73,7 @@ uint32_t        debug;
 char           *geoip_file;
 char           *ip_action_url;
 gchar         **broadcasts;
+uint32_t        broadcasts_delay;
 int             num_file_limits;
 
 uint32_t recently_blocked_timeout;
@@ -210,6 +211,7 @@ globals_init(void)
     geoip_file = 0;
     ip_action_url = 0;
     broadcasts = 0;
+    broadcasts_delay = 60;
 #if DEBUG
     debug = 1;
 #else
@@ -496,8 +498,10 @@ block_addr(client_conn_t * conn, uint32_t addr, const char *reason)
     thrash_bgp_inject(addr, &cm, bgp_sock);
 #endif
 
-    if (conn)
+    if (conn) {
+        bnode->bcast_time = conn->last_time.tv_sec;
         thrash_bcast_send(bnode);
+    }
 
     return bnode;
 }
@@ -687,6 +691,11 @@ do_thresholding(client_conn_t * conn)
                     + (conn->last_time.tv_usec - bnode->last_time.tv_usec);
 
         bnode->avg_distance_usec = (bnode->avg_distance_usec * (velocity_num - 1) + arrival_gap)/velocity_num;
+
+        if (bnode->bcast_time - conn->last_time.tv_sec >= broadcasts_delay) {
+            bnode->bcast_time = conn->last_time.tv_sec;
+            thrash_bcast_send(bnode);
+        }
 
         bnode->last_time = conn->last_time;
         return 1;
@@ -1591,6 +1600,7 @@ load_config(gboolean reload)
         {"thrashd", "geoip-file",                 _c_f_t_str,   &geoip_file,               FALSE},
         {"thrashd", "ip-action-url",              _c_f_t_str,   &ip_action_url,            TRUE},
         {"thrashd", "broadcasts",                 _c_f_t_strl,  &broadcasts,               TRUE},
+        {"thrashd", "broadcasts-delay",           _c_f_t_int,   &broadcasts_delay,         TRUE},
 #ifdef WITH_BGP
         {"thrashd", "bgp-sock",                   _c_f_t_str,   &bgp_sockname,             FALSE},
 #endif

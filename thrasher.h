@@ -151,6 +151,7 @@ typedef struct qstats {
 
 typedef struct blocked_node {
     struct timeval  last_time;
+    time_t          bcast_time;
     double          avg_distance_usec;
     char           *reason;
     uint32_t        saddr;

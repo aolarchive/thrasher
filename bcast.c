@@ -18,7 +18,7 @@ extern uint16_t           bind_port;
 extern gchar            **broadcasts;
 extern char              *process_name;
 struct ifaddrs           *ifaddr;
-
+extern uint32_t           debug;
 
 
 GHashTable     *broadcast_table;
@@ -70,9 +70,6 @@ thrash_bcast_connect(char *nodename)
     int             port = bind_port; 
     struct ifaddrs *ifa;
 
-    if (!*nodename)
-        return 0;
-
     while (*nodeptr && isspace(*nodeptr)) nodeptr++; // Remove leading spaces
 
     strncpy(host, nodeptr, sizeof(host));
@@ -97,7 +94,7 @@ thrash_bcast_connect(char *nodename)
 
     evutil_getaddrinfo(host, portstr, &hint, &ai);
     if (!ai) {
-        LOG(logfile, "Failed to resolve %s", host);
+        LOG(logfile, "Failed to resolve %s for %s", host, nodename);
         return 0;
     }
 
@@ -122,9 +119,14 @@ thrash_bcast_connect(char *nodename)
     evutil_freeaddrinfo(ai);
 
     if (r != 0) {
+        if (debug)
+            LOG(logfile, "Couldn't connect to %s", nodename);
         bufferevent_free(be);
         return 0;
     }
+
+    if (debug)
+        LOG(logfile, "Connected to %s", nodename);
 
     bufferevent_setcb(be, NULL, NULL, thrash_bcast_event_cb, (void *)nodename);
     return be;
@@ -152,6 +154,9 @@ thrash_bcast_send(blocked_node_t *bnode)
     memcpy(buffer+7+plen+1, bnode->reason, rlen);
 
     for (i = 0; broadcasts[i]; i++) {
+        if (!*broadcasts[i])
+            continue;
+
         be = g_hash_table_lookup(broadcast_table, broadcasts[i]);
         if (!be) {
             be = thrash_bcast_connect(broadcasts[i]);
@@ -160,5 +165,7 @@ thrash_bcast_send(blocked_node_t *bnode)
             g_hash_table_insert(broadcast_table, broadcasts[i], be);
         }
         bufferevent_write(be, buffer, 7 + plen + 1 + rlen);
+        if (debug)
+            LOG(logfile, "Sending %s to %s", inet_ntoa(*(struct in_addr *) &bnode->saddr), broadcasts[i]);
     }
 }

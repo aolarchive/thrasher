@@ -42,6 +42,8 @@ extern char    *config_filename;
 extern int      num_file_limits;
 extern uint32_t max_qps;
 extern time_t   max_qps_time;
+extern gchar  **broadcasts;
+extern uint32_t broadcasts_delay;
 
 extern block_ratio_t minimum_random_ratio;
 extern block_ratio_t maximum_random_ratio;
@@ -595,6 +597,17 @@ httpd_put_config(struct evhttp_request *req, void *args)
     if (uris_ratio_table) {
         evbuffer_add_printf(buf, "\nURIs Ratio Table:\n");
         g_hash_table_foreach(uris_ratio_table, (GHFunc) fill_http_uriratio, buf);
+    }
+
+    if (broadcasts) {
+        evbuffer_add_printf(buf, "\nHolddown Broadcasts:\n");
+        evbuffer_add_printf(buf, "  Retransmit delay: %d seconds\n", broadcasts_delay);
+
+        int i;
+        for (i = 0; broadcasts[i]; i++) {
+            if (broadcasts[i][0])
+                evbuffer_add_printf(buf, "  %s\n", broadcasts[i]);
+        }
     }
 
     if (args) {
