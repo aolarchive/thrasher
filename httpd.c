@@ -63,6 +63,8 @@ extern GHashTable     *uris_ratio_table;
 
 static char *geoip_header;
 
+struct timeval  start_time;
+
 
 /* Must be an easier way to figure out when an event is going to fire */
 uint32_t event_remaining_seconds(struct event *ev) 
@@ -522,6 +524,7 @@ httpd_put_config(struct evhttp_request *req, void *args)
 
     evbuffer_add_printf(buf, "Thrashd version: %s (%s) [%s]\n", VERSION,
                         VERSION_NAME, process_name);
+    evbuffer_add_printf(buf, "Start Time: %s", ctime(&start_time.tv_sec));
 
     evbuffer_add_printf(buf, "Running configuration\n\n");
     evbuffer_add_printf(buf, "  URI Check Enabled:     %s\n",
@@ -866,6 +869,8 @@ webserver_init(void)
 {
     struct evhttp  *httpd;
     httpd = evhttp_new(base);
+
+    evutil_gettimeofday(&start_time, NULL);
 
     if (httpd == NULL)
         return -1;

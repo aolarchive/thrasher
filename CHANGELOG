@@ -1,3 +1,6 @@
+1.1r2
+    * Added start timestamp to config output
+
 1.1r1
     * First pass at upgrading to libevent2
     * Added new inject with reason
