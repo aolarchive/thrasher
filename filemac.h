@@ -16,6 +16,11 @@ do {                                                                  \
         FEXPORT_u16(file, len);                                       \
         fwrite(x, len, 1, file);                                      \
 } while (0)
+ 
+#define FEXPORT_byte(file,x,len)                                      \
+do {                                                                  \
+        fwrite(x, len, 1, file);                                      \
+} while (0)
 
 #define FIMPORT_u16(file,x)                                           \
 do {                                                                  \
@@ -37,4 +42,9 @@ do {                                                                  \
         x = malloc(len+1);                                            \
         fread(x, len, 1, file);                                       \
         x[len] = 0;                                                   \
+} while (0)
+
+#define FIMPORT_byte(file,x,len)                                      \
+do {                                                                  \
+        fread(x, len, 1, file);                                       \
 } while (0)

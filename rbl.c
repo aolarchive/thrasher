@@ -32,9 +32,6 @@ get_rbl_answer(int result, char type, int count, int ttl,
                struct in_addr *addresses, uint32_t * arg)
 {
     uint32_t        addr;
-    qstats_t        qsnode;
-    client_conn_t   cconn;
-    struct in_addr *in_addrs;
 #ifdef DEBUG
     LOG(logfile, "Got an answer for address %u", arg ? *arg : 0);
 #endif
@@ -43,7 +40,6 @@ get_rbl_answer(int result, char type, int count, int ttl,
         return;
 
     addr = *arg;
-    in_addrs = NULL;
 
     free(arg);
 
@@ -81,28 +77,35 @@ get_rbl_answer(int result, char type, int count, int ttl,
 #ifdef DEBUG
     LOG(logfile, "RBL Server thinks %u is bad! BADBOY!", htonl(addr));
 #endif
-    qsnode.saddr = htonl(addr);
 
-    if (in_addrs) {
-        cconn.conn_addr = (uint32_t) in_addrs[0].s_addr;
-        block_addr(&cconn, qsnode.saddr, "rbl");
-    } else
-        block_addr(NULL, qsnode.saddr, "rbl");
+    uint128_t s6addr;
+
+    ip4_to_ip6(htonl(addr), s6addr);
+
+    block_addr(NULL, s6addr, "rbl");
 
     LOG(logfile, "holding down address %s triggered by RBL",
-        inet_ntoa(*(struct in_addr *) &qsnode.saddr));
+        inet_ntoa(*(struct in_addr *) &addr));
 
 }
 
 void
-make_rbl_query(uint32_t addr)
+make_rbl_query(uint128_t s6addr)
 {
+    uint32_t        addr;
     char           *query;
     char           *addr_str;
     uint32_t       *addrarg;
     int             name_sz;
 
-    addr = htonl(addr);
+    if (s6addr[10] != 0xff && s6addr[11] != 0xff) {
+        char addrbuf[INET6_ADDRSTRLEN];
+        thrash_inet_ntop(s6addr, addrbuf, sizeof(addrbuf));
+        LOG(logfile, "%s is not a ipv4 address", addrbuf);
+        return;
+    }
+
+    memcpy(&addr, s6addr+12, 4);
 
     if (g_tree_lookup(rbl_negative_cache, &addr)) {
 #if DEBUG

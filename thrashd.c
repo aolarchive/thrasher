@@ -134,17 +134,35 @@ free_client_conn(client_conn_t * conn)
     free(conn);
 }
 
+const char *
+thrash_inet_ntop(const unsigned char *src, char *dst, socklen_t size) 
+{
+    if (src[10] == 0xff && src[11] == 0xff)
+        return inet_ntop(AF_INET, src+12, dst, size);
+    else
+        return inet_ntop(AF_INET6, src, dst, size);
+}
+
 
 int
-uint32_cmp(const void *a, const void *b)
+uint32_cmp(const void *a, const void *b, gpointer uw)
 {
-    if (*(uint32_t *) a < *(uint32_t *) b)
-        return -1;
+    return memcmp(a, b, 4);
+}
 
-    if (*(uint32_t *) a > *(uint32_t *) b)
-        return 1;
+int
+uint128_cmp(const void *a, const void *b)
+{
+    return memcmp(a, b, 16);
+}
 
-    return 0;
+void
+ip4_to_ip6(uint32_t s4addr, uint128_t s6addr) 
+{
+    memset(s6addr, 0, 16);
+    s6addr[10] = 0xff;
+    s6addr[11] = 0xff;
+    memcpy(s6addr+12, &s4addr, 4);
 }
 
 void increase_limits()
@@ -185,7 +203,7 @@ globals_init(void)
     qps_last = 0;
     current_connections_count = 0;
     current_connections = g_slist_alloc();
-    current_blocks = g_tree_new((GCompareFunc) uint32_cmp);
+    current_blocks = g_tree_new(uint128_cmp);
     uri_table = g_hash_table_new(g_str_hash, g_str_equal);
     host_table = g_hash_table_new(g_str_hash, g_str_equal);
     addr_table = g_hash_table_new(g_str_hash, g_str_equal);
@@ -306,9 +324,9 @@ slide_ratios(blocked_node_t * bnode)
 }
 
 void
-remove_holddown(uint32_t addr)
+remove_holddown(uint128_t s6addr)
 {
-    g_tree_remove(current_blocks, &addr);
+    g_tree_remove(current_blocks, s6addr);
 }
 
 void
@@ -317,13 +335,16 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
     /*
      * blocked node expiration
      */
+    char addrbuf[INET6_ADDRSTRLEN];
+
+    thrash_inet_ntop(bnode->s6addr, addrbuf, sizeof(addrbuf));
     LOG(logfile, "expired address %s after %u hits",
-        inet_ntoa(*(struct in_addr *) &bnode->saddr), bnode->count);
+        addrbuf, bnode->count);
 
     if (bnode->hard_timeout.ev_timeout.tv_sec)
         evtimer_del(&bnode->hard_timeout);
     evtimer_del(&bnode->timeout);
-    remove_holddown(bnode->saddr);
+    remove_holddown(bnode->s6addr);
 
     /*
      * which will tell us whether this is a timer or not,
@@ -352,7 +373,7 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
         /*
          * load this guy up into our recently blocked list
          */
-        g_tree_insert(recently_blocked, &bnode->saddr, bnode);
+        g_tree_insert(recently_blocked, bnode->s6addr, bnode);
 
         /*
          * set our timeout to the global
@@ -366,7 +387,7 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
 
         LOG(logfile,
             "Placing %s into recently blocked list with a ratio of %d:%d",
-            inet_ntoa(*(struct in_addr *) &bnode->saddr),
+            addrbuf,
             bnode->ratio.num_connections, bnode->ratio.timelimit);
         return;
     }
@@ -380,17 +401,18 @@ expire_bnode(int sock, short which, blocked_node_t * bnode)
 
 void
 expire_hard_bnode(int sock, short which, blocked_node_t * bnode) {
-    char            akey[20];
     qstats_t       *stats;
 
+    char addrbuf[INET6_ADDRSTRLEN];
+    thrash_inet_ntop(bnode->s6addr, addrbuf, sizeof(addrbuf));
 
-    if (debug)
+
+    if (debug) {
         LOG(logfile, "HARD Timeout expired (%d, %d, %p) for %s after %u hits",
-            sock, which, bnode,
-            inet_ntoa(*(struct in_addr *)&bnode->saddr), bnode->count);
+            sock, which, bnode, addrbuf, bnode->count);
+    }
 
-    snprintf(akey, sizeof(akey), "%u", bnode->saddr);
-    stats = g_hash_table_lookup(addr_table, akey);
+    stats = g_hash_table_lookup(addr_table, addrbuf);
     if (stats) {
         expire_stats_node(0, 0, stats);
     }
@@ -401,14 +423,15 @@ expire_hard_bnode(int sock, short which, blocked_node_t * bnode) {
 void
 expire_recent_bnode(int sock, short which, blocked_node_t * bnode)
 {
+    char addrbuf[INET6_ADDRSTRLEN];
+    thrash_inet_ntop(bnode->s6addr, addrbuf, sizeof(addrbuf));
 
     if (debug)
         LOG(logfile, "RECENT Timeout expired (%d, %d, %p) for %s after %u hits",
-            sock, which, bnode,
-            inet_ntoa(*(struct in_addr *)&bnode->saddr), bnode->count);
+            sock, which, bnode, addrbuf, bnode->count);
 
     evtimer_del(&bnode->recent_block_timeout);
-    g_tree_remove(recently_blocked, &bnode->saddr);
+    g_tree_remove(recently_blocked, bnode->s6addr);
 
     if (bnode->reason)
         free(bnode->reason);
@@ -441,7 +464,7 @@ expire_stats_node(int sock, short which, qstats_t * stat_node)
 }
 
 blocked_node_t *
-block_addr(client_conn_t * conn, uint32_t addr, const char *reason)
+block_addr(client_conn_t * conn, uint128_t s6addr, const char *reason)
 {
     blocked_node_t *bnode;
     struct timeval  tv;
@@ -459,7 +482,7 @@ block_addr(client_conn_t * conn, uint32_t addr, const char *reason)
     else
         evutil_gettimeofday(&bnode->last_time, NULL);
 
-    bnode->saddr = addr;
+    memcpy(bnode->s6addr, s6addr, 16);
     bnode->count = 1;
     if (reason)
         bnode->reason = strdup(reason);
@@ -476,7 +499,7 @@ block_addr(client_conn_t * conn, uint32_t addr, const char *reason)
     /*
      * insert the blocked node into our tree of held down addresses
      */
-    g_tree_insert(current_blocks, &bnode->saddr, bnode);
+    g_tree_insert(current_blocks, bnode->s6addr, bnode);
 
     /*
      * add our soft timeout for this node
@@ -514,11 +537,11 @@ block_addr(client_conn_t * conn, uint32_t addr, const char *reason)
 }
 
 qstats_t       *
-create_stats_node(uint32_t saddr, const char *key, const char *reason, GHashTable * tbl)
+create_stats_node(uint128_t s6addr, const char *key, const char *reason, GHashTable * tbl)
 {
     qstats_t       *snode;
 
-    if (!saddr || !key || !tbl)
+    if (!s6addr || !key || !tbl)
         return NULL;
 
     if (!(snode = calloc(sizeof(qstats_t), 1))) {
@@ -526,7 +549,7 @@ create_stats_node(uint32_t saddr, const char *key, const char *reason, GHashTabl
         exit(1);
     }
 
-    snode->saddr = saddr;
+    memcpy(snode->s6addr, s6addr, 16);
     snode->key = strdup(key);
     if (reason)
         snode->reason = strdup(reason);
@@ -562,7 +585,7 @@ update_thresholds(client_conn_t * conn, const char *key, stat_type_t type, block
         /*
          * create a new statistics table for this type
          */
-        if (!(stats = create_stats_node(conn->query.saddr, key, conn->query.reason, table)))
+        if (!(stats = create_stats_node(conn->query.s6addr, key, conn->query.reason, table)))
             return -1;
 
         /*
@@ -593,28 +616,23 @@ update_thresholds(client_conn_t * conn, const char *key, stat_type_t type, block
          * we seemed to have hit a threshold
          */
         blocked_node_t *bnode;
-        char           *blockedaddr;
-        char           *triggeraddr;
+        char            blockedaddr[INET6_ADDRSTRLEN];
+        char            triggeraddr[INET6_ADDRSTRLEN];
         char            geoinfo[100];
 
-        bnode = block_addr(conn, stats->saddr, stats->reason);
+        bnode = block_addr(conn, stats->s6addr, stats->reason);
 
-        blockedaddr = strdup(inet_ntoa(*(struct in_addr *) &bnode->saddr));
-        triggeraddr =
-            strdup(inet_ntoa(*(struct in_addr *) &bnode->first_seen_addr));
-
+        thrash_inet_ntop(bnode->s6addr, blockedaddr, sizeof(blockedaddr));
+        inet_ntop(AF_INET, &(bnode->first_seen_addr), triggeraddr, sizeof(triggeraddr));
 
         geoinfo[0] = 0;
 #ifdef WITH_GEOIP
         if (gi)
-            snprintf(geoinfo, sizeof(geoinfo), " [%s]", blankprint(GeoIP_country_name_by_ipnum(gi, ntohl(stats->saddr))));
+            snprintf(geoinfo, sizeof(geoinfo), " [%s]", blankprint(GeoIP_country_name_by_ipnum_v6(gi, *(geoipv6_t*)&(bnode->s6addr))));
 #endif
 
         LOG(logfile, "type %d holding down address %s%s triggered by %s (%d >= %d) key %s",
             type, blockedaddr, geoinfo, triggeraddr, stats->connections, ratio->num_connections, key);
-
-        free(blockedaddr);
-        free(triggeraddr);
 
         expire_stats_node(0, 0, stats);
 
@@ -636,10 +654,9 @@ is_whitelisted(client_conn_t * conn)
 int
 do_thresholding(client_conn_t * conn)
 {
-    uint32_t        hkeylen,
-                    ukeylen;
-    char           *hkey,
-                   *ukey;
+    char            queryip[INET6_ADDRSTRLEN];
+    char            hkey[2000],
+                    ukey[2000];
     int             blocked;
     struct timeval  tv;
     blocked_node_t *bnode;
@@ -649,13 +666,13 @@ do_thresholding(client_conn_t * conn)
     total_queries++;
 
     blocked = 0;
-    ukey = NULL;
-    hkey = NULL;
 
     if (debug) {
-        char connip[40], queryip[40];
-        strcpy(connip, inet_ntoa(*(struct in_addr *) &conn->conn_addr));
-        strcpy(queryip, inet_ntoa(*(struct in_addr *) &conn->query.saddr));
+        char connip[INET6_ADDRSTRLEN];
+
+        thrash_inet_ntop(conn->query.s6addr, queryip, sizeof(queryip));
+        inet_ntop(AF_INET, &(conn->conn_addr), connip, sizeof(connip));
+
         LOG(logfile, "Thresholding %d from %s for %s host %.*s uri %.*s reason %.*s",
             conn->type,
             connip,
@@ -676,7 +693,7 @@ do_thresholding(client_conn_t * conn)
     /*
      * check if we already have a block somewhere
      */
-    if ((bnode = g_tree_lookup(current_blocks, &conn->query.saddr))) {
+    if ((bnode = g_tree_lookup(current_blocks, conn->query.s6addr))) {
         /*
          * this connection seems to be blocked, reset our block timers
          * and continue on
@@ -711,7 +728,7 @@ do_thresholding(client_conn_t * conn)
 
     if (((recently_blocked) && (bnode =
                                 g_tree_lookup(recently_blocked,
-                                              &conn->query.saddr)))) {
+                                              conn->query.s6addr)))) {
         /*
          * this address has been recently expired from the current_blocks
          * and placed into the recently_blocked list.
@@ -753,12 +770,12 @@ do_thresholding(client_conn_t * conn)
              * remove from our recently blocked list
              */
             evtimer_del(&bnode->recent_block_timeout);
-            g_tree_remove(recently_blocked, &conn->query.saddr);
+            g_tree_remove(recently_blocked, conn->query.s6addr);
 
             /*
              * insert into our block tree
              */
-            g_tree_insert(current_blocks, &bnode->saddr, bnode);
+            g_tree_insert(current_blocks, bnode->s6addr, bnode);
 
             /*
              * set our timeout to the normal timelimit
@@ -786,32 +803,20 @@ do_thresholding(client_conn_t * conn)
      */
 
     if (rbl_zone)
-        make_rbl_query(conn->query.saddr);
+        make_rbl_query(conn->query.s6addr);
 
     switch (conn->type) {
 
     case TYPE_THRESHOLD_v1:
     case TYPE_THRESHOLD_v3:
     case TYPE_THRESHOLD_v4:
-        ukeylen = conn->query.uri_len + 14;
+    case TYPE_THRESHOLD_v6:
 
-        if (!(ukey = calloc(ukeylen, 1))) {
-            LOG(logfile, "Out of memory: %s", strerror(errno));
-            exit(1);
-        }
+        thrash_inet_ntop(conn->query.s6addr, queryip, sizeof(queryip));
 
-        hkeylen = conn->query.host_len + 14;
+        snprintf(ukey, sizeof(ukey), "%s;%s", queryip, conn->query.uri);
 
-        if (!(hkey = calloc(hkeylen, 1))) {
-            LOG(logfile, "Out of memory: %s", strerror(errno));
-            exit(1);
-        }
-
-        snprintf(ukey, ukeylen - 1, "%u:%s", conn->query.saddr,
-                 conn->query.uri);
-
-        snprintf(hkey, hkeylen - 1, "%u:%s", conn->query.saddr,
-                 conn->query.host);
+        snprintf(hkey, sizeof(hkey), "%s;%s", queryip, conn->query.host);
 
 
         if (uri_check) {
@@ -840,14 +845,7 @@ do_thresholding(client_conn_t * conn)
         if (addr_check <= 0)
             break;
 
-        hkeylen = 13;
-
-        if (!(hkey = calloc(hkeylen, 1))) {
-            LOG(logfile, "Out of memory: %s", strerror(errno));
-            exit(1);
-        }
-
-        snprintf(hkey, hkeylen - 1, "%u", conn->query.saddr);
+        thrash_inet_ntop(conn->query.s6addr, hkey, sizeof(hkey));
 
         if (update_thresholds(conn, hkey, stat_type_address, &addr_ratio) == 1)
             blocked = 1;
@@ -857,11 +855,6 @@ do_thresholding(client_conn_t * conn)
         blocked = 0;
         break;
     }
-
-    if (ukey)
-        free(ukey);
-    if (hkey)
-        free(hkey);
 
     return blocked;
 }
@@ -875,19 +868,23 @@ do_injection(client_conn_t * conn)
     switch (conn->type) {
     case TYPE_INJECT:
     case TYPE_INJECT_v2:
+    case TYPE_INJECT_v6:
         geoinfo[0] = 0;
 #ifdef WITH_GEOIP
         if (gi)
-            snprintf(geoinfo, sizeof(geoinfo), " [%s]", blankprint(GeoIP_country_name_by_ipnum(gi, ntohl(conn->query.saddr))));
+            snprintf(geoinfo, sizeof(geoinfo), " [%s]", blankprint(GeoIP_country_name_by_ipnum_v6(gi, *(geoipv6_t*)&(conn->query.s6addr))));
 #endif
 
+        char addrbuf[INET6_ADDRSTRLEN];
+
+        thrash_inet_ntop(conn->query.s6addr, addrbuf, sizeof(addrbuf));
         LOG(logfile, "type I holding down address %s%s triggered by injection", 
-            inet_ntoa(*(struct in_addr *) &conn->query.saddr), geoinfo);
+            addrbuf, geoinfo);
 
         /*
          * make sure the node doesn't already exist
          */
-        if ((bnode = g_tree_lookup(current_blocks, &conn->query.saddr))) {
+        if ((bnode = g_tree_lookup(current_blocks, conn->query.s6addr))) {
             bnode->count++;
             total_blocked_connections++;
             break;
@@ -898,20 +895,20 @@ do_injection(client_conn_t * conn)
          * if I ever end up doing any other types of features
          */
         if (recently_blocked &&
-            (bnode = g_tree_lookup(recently_blocked, &conn->query.saddr)))
+            (bnode = g_tree_lookup(recently_blocked, conn->query.s6addr)))
             /*
              * remove the bnode from the recently blocked list
              * so the bnode is now set to this instead of a new
              * allocd version
              */
         {
-            g_tree_remove(recently_blocked, &conn->query.saddr);
+            g_tree_remove(recently_blocked, conn->query.s6addr);
             /*
              * unset the recently_blocked timeout
              */
             evtimer_del(&bnode->recent_block_timeout);
         } else
-            bnode = block_addr(NULL, conn->query.saddr, (conn->query.reason_len?conn->query.reason:"inject"));
+            bnode = block_addr(NULL, conn->query.s6addr, (conn->query.reason_len?conn->query.reason:"inject"));
 
         bnode->count = 0;
         bnode->first_seen_addr = 0xffffffff;
@@ -919,7 +916,8 @@ do_injection(client_conn_t * conn)
         break;
 
     case TYPE_REMOVE:
-        if (!(bnode = g_tree_lookup(current_blocks, &conn->query.saddr)))
+    case TYPE_REMOVE_v6:
+        if (!(bnode = g_tree_lookup(current_blocks, conn->query.s6addr)))
             break;
         expire_bnode(0, 0, bnode);
         break;
@@ -943,7 +941,7 @@ client_process_data(int sock, short which, client_conn_t * conn)
          * else make it only 1 byte
          */
         initialize_iov(&conn->data,
-                       (conn->type == TYPE_THRESHOLD_v3 || conn->type == TYPE_THRESHOLD_v4) ?
+                       (conn->type == TYPE_THRESHOLD_v3 || conn->type == TYPE_THRESHOLD_v4 || conn->type == TYPE_THRESHOLD_v6) ?
                        sizeof(uint32_t) +
                        sizeof(uint8_t) : sizeof(uint8_t));
 
@@ -953,10 +951,13 @@ client_process_data(int sock, short which, client_conn_t * conn)
         blocked = 0;
 
 #if DEBUG
-    LOG(logfile, "saddr %u block stats: %d\n", conn->query.saddr, blocked);
+    char addrbuf[INET6_ADDRSTRLEN];
+
+    thrash_inet_ntop(conn->query.s6addr, addrbuf, sizeof(addrbuf));
+    LOG(logfile, "saddr %s block stats: %d\n", addrbuf, blocked);
 #endif
 
-    if (conn->type == TYPE_THRESHOLD_v3 || conn->type == TYPE_THRESHOLD_v4) {
+    if (conn->type == TYPE_THRESHOLD_v3 || conn->type == TYPE_THRESHOLD_v4 || conn->type == TYPE_THRESHOLD_v6) {
         memcpy(conn->data.buf, &conn->id, sizeof(uint32_t));
         conn->data.buf[4] = blocked;
     } else
@@ -1062,6 +1063,57 @@ client_read_payload(int sock, short which, client_conn_t * conn)
 }
 
 void
+client_read_v6_header(int sock, short which, client_conn_t * conn)
+{
+    int             ioret;
+
+    reset_connection_timeout(conn, connection_timeout);
+
+    if (!conn->data.buf)
+        initialize_iov(&conn->data, 2+4+16+2+2);
+
+    ioret = read_iov(&conn->data, sock);
+
+    if (ioret < 0) {
+        free_client_conn(conn);
+        return;
+    }
+
+    if (ioret > 0) {
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_v6_header, conn);
+        event_add(&conn->event, 0);
+        return;
+    }
+
+    memcpy(&conn->query.reason_len, conn->data.buf, sizeof(uint16_t));
+    conn->query.reason_len = ntohs(conn->query.reason_len);
+
+    memcpy(&conn->id, conn->data.buf+2, sizeof(uint32_t));
+
+    memcpy(conn->query.s6addr, conn->data.buf+6, 16);
+
+    memcpy(&conn->query.uri_len, conn->data.buf+22, sizeof(uint16_t));
+    conn->query.uri_len = ntohs(conn->query.uri_len);
+
+    memcpy(&conn->query.host_len, conn->data.buf+24, sizeof(uint16_t));
+    conn->query.host_len = ntohs(conn->query.host_len);
+
+
+
+
+    reset_iov(&conn->data);
+
+#ifdef DEBUG
+    LOG(logfile, "Got ident %u", ntohl(conn->id));
+#endif
+
+    event_assign(&conn->event, base, sock, EV_READ,
+                 (void *) client_read_payload, conn);
+    event_add(&conn->event, 0);
+}
+
+void
 client_read_v4_header(int sock, short which, client_conn_t * conn)
 {
     /*
@@ -1154,7 +1206,6 @@ void
 client_read_v2_header(int sock, short which, client_conn_t * conn)
 {
     int             ioret;
-    uint32_t        saddr;
 
     reset_connection_timeout(conn, connection_timeout);
 
@@ -1175,8 +1226,10 @@ client_read_v2_header(int sock, short which, client_conn_t * conn)
         return;
     }
 
-    memcpy(&saddr, conn->data.buf, sizeof(uint32_t));
-    conn->query.saddr = saddr;
+    memset(conn->query.s6addr, 0, 16);
+    conn->query.s6addr[10] = 0xff;
+    conn->query.s6addr[11] = 0xff;
+    memcpy(conn->query.s6addr+12, conn->data.buf, 4);
     reset_iov(&conn->data);
 
     /*
@@ -1192,7 +1245,6 @@ void
 client_read_v1_header(int sock, short which, client_conn_t * conn)
 {
     int             ioret;
-    uint32_t        saddr;
     uint16_t        urilen;
     uint16_t        hostlen;
 
@@ -1215,7 +1267,11 @@ client_read_v1_header(int sock, short which, client_conn_t * conn)
         return;
     }
 
-    memcpy(&saddr, &conn->data.buf[0], sizeof(uint32_t));
+    memset(conn->query.s6addr, 0, 16);
+    conn->query.s6addr[10] = 0xff;
+    conn->query.s6addr[11] = 0xff;
+    memcpy(conn->query.s6addr+12, conn->data.buf, 4);
+
     memcpy(&urilen, &conn->data.buf[4], sizeof(uint16_t));
     memcpy(&hostlen, &conn->data.buf[6], sizeof(uint16_t));
 
@@ -1223,7 +1279,10 @@ client_read_v1_header(int sock, short which, client_conn_t * conn)
     hostlen = ntohs(hostlen);
 
 #ifdef DEBUG
-    LOG(logfile, "saddr = %s", inet_ntoa(*(struct in_addr *) &saddr));
+    char addrbuf[INET6_ADDRSTRLEN];
+
+    thrash_inet_ntop(conn->query.s6addr, addrbuf, sizeof(addrbuf));
+    LOG(logfile, "saddr = %s", addrbuf);
     LOG(logfile, "ulen %d hlen %d", urilen, hostlen);
 #endif
 
@@ -1235,7 +1294,6 @@ client_read_v1_header(int sock, short which, client_conn_t * conn)
 
     conn->query.uri_len = urilen;
     conn->query.host_len = hostlen;
-    conn->query.saddr = saddr;
     reset_iov(&conn->data);
 
     event_assign(&conn->event, base, sock, EV_READ,
@@ -1251,7 +1309,7 @@ client_read_injection(int sock, short which, client_conn_t * conn)
     reset_connection_timeout(conn, connection_timeout);
 
     if (!conn->data.buf)
-        initialize_iov(&conn->data, sizeof(uint32_t) + conn->query.reason_len );
+        initialize_iov(&conn->data, sizeof(uint32_t));
 
     ioret = read_iov(&conn->data, sock);
 
@@ -1267,7 +1325,45 @@ client_read_injection(int sock, short which, client_conn_t * conn)
         return;
     }
 
-    memcpy(&conn->query.saddr, conn->data.buf, sizeof(uint32_t));
+    memset(conn->query.s6addr, 0, 16);
+    conn->query.s6addr[10] = 0xff;
+    conn->query.s6addr[11] = 0xff;
+    memcpy(conn->query.s6addr+12, conn->data.buf, 4);
+
+    do_injection(conn);
+
+    reset_iov(&conn->data);
+
+    event_assign(&conn->event, base, conn->sock, EV_READ,
+                 (void *) client_read_type, conn);
+    event_add(&conn->event, 0);
+}
+
+void
+client_read_removal6(int sock, short which, client_conn_t * conn)
+{
+    int             ioret;
+
+    reset_connection_timeout(conn, connection_timeout);
+
+    if (!conn->data.buf)
+        initialize_iov(&conn->data, sizeof(uint128_t));
+
+    ioret = read_iov(&conn->data, sock);
+
+    if (ioret < 0) {
+        free_client_conn(conn);
+        return;
+    }
+
+    if (ioret > 0) {
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_removal6, conn);
+        event_add(&conn->event, 0);
+        return;
+    }
+
+    memcpy(conn->query.s6addr, conn->data.buf, 16);
 
     do_injection(conn);
 
@@ -1353,12 +1449,61 @@ client_read_injection2_header(int sock, short which, client_conn_t * conn)
         return;
     }
 
-    memcpy(&conn->query.saddr, conn->data.buf, sizeof(uint32_t));
+    memset(conn->query.s6addr, 0, 16);
+    conn->query.s6addr[10] = 0xff;
+    conn->query.s6addr[11] = 0xff;
+    memcpy(conn->query.s6addr+12, conn->data.buf, 4);
     memcpy(&conn->query.reason_len, conn->data.buf+4, sizeof(uint16_t));
     conn->query.reason_len = ntohs(conn->query.reason_len);
 
 #ifdef DEBUG
-    LOG(logfile, "Got saddr %s and reason len %d", inet_ntoa(*(struct in_addr *) &conn->query.saddr), conn->query.reason_len);
+    char addrbuf[INET6_ADDRSTRLEN];
+
+    thrash_inet_ntop(conn->query.s6addr, addrbuf, sizeof(addrbuf));
+    LOG(logfile, "Got saddr %s and reason len %d", addrbuf, conn->query.reason_len);
+#endif
+
+    reset_iov(&conn->data);
+
+    event_assign(&conn->event, base, sock, EV_READ,
+                 (void *) client_read_injection2_reason, conn);
+    event_add(&conn->event, 0);
+
+}
+
+void
+client_read_injection6_header(int sock, short which, client_conn_t * conn)
+{
+    int             ioret;
+
+    reset_connection_timeout(conn, connection_timeout);
+
+    if (!conn->data.buf)
+        initialize_iov(&conn->data, sizeof(uint128_t) + sizeof(uint16_t) );
+
+    ioret = read_iov(&conn->data, sock);
+
+    if (ioret < 0) {
+        free_client_conn(conn);
+        return;
+    }
+
+    if (ioret > 0) {
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_injection6_header, conn);
+        event_add(&conn->event, 0);
+        return;
+    }
+
+    memcpy(conn->query.s6addr, conn->data.buf, 16);
+    memcpy(&conn->query.reason_len, conn->data.buf+16, sizeof(uint16_t));
+    conn->query.reason_len = ntohs(conn->query.reason_len);
+
+#ifdef DEBUG
+    char addrbuf[INET6_ADDRSTRLEN];
+
+    thrash_inet_ntop(conn->query.s6addr, addrbuf, sizeof(addrbuf));
+    LOG(logfile, "Got saddr %s and reason len %d", addrbuf, conn->query.reason_len);
 #endif
 
     reset_iov(&conn->data);
@@ -1436,6 +1581,11 @@ client_read_type(int sock, short which, client_conn_t * conn)
                      (void *) client_read_v4_header, conn);
         event_add(&conn->event, 0);
         break;
+    case TYPE_THRESHOLD_v6:
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_v6_header, conn);
+        event_add(&conn->event, 0);
+        break;
     case TYPE_REMOVE:
     case TYPE_INJECT:
         event_assign(&conn->event, base, sock, EV_READ,
@@ -1445,6 +1595,16 @@ client_read_type(int sock, short which, client_conn_t * conn)
     case TYPE_INJECT_v2:
         event_assign(&conn->event, base, sock, EV_READ,
                      (void *) client_read_injection2_header, conn);
+        event_add(&conn->event, 0);
+        break;
+    case TYPE_REMOVE_v6:
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_removal6, conn);
+        event_add(&conn->event, 0);
+        break;
+    case TYPE_INJECT_v6:
+        event_assign(&conn->event, base, sock, EV_READ,
+                     (void *) client_read_injection6_header, conn);
         event_add(&conn->event, 0);
         break;
     default:
@@ -2028,7 +2188,7 @@ log_startup(void)
 
 gboolean save_data_current(gpointer key, blocked_node_t *bn, FILE *file)
 {
-    FEXPORT_u32(file, bn->saddr);
+    FEXPORT_byte(file, bn->s6addr, 16);
     FEXPORT_u32(file, bn->count);
     FEXPORT_u32(file, bn->last_time.tv_sec);
     FEXPORT_u32(file, bn->first_seen_addr);
@@ -2069,7 +2229,7 @@ save_data ()
         return;
     }
     FEXPORT_str(file, "thrasher");
-    FEXPORT_u16(file, 2); /* version */
+    FEXPORT_u16(file, 3); /* version */
     FEXPORT_u32(file, current_time.tv_sec);
 
     FEXPORT_u32(file, g_tree_nnodes(current_blocks));
@@ -2125,7 +2285,7 @@ load_data ()
 
     FIMPORT_str(file, str, len);
     FIMPORT_u16(file, version);
-    if (version > 2 || len != 8 || memcmp(str, "thrasher", len) != 0) {
+    if (version > 3 || len != 8 || memcmp(str, "thrasher", len) != 0) {
         fclose(file);
         LOG(logfile, "ERROR: Backup file corrupt%s", "");
         free(str);
@@ -2147,7 +2307,16 @@ load_data ()
             exit(1);
         }
 
-        FIMPORT_u32(file, bn->saddr);
+        if (version >= 2) {
+            FIMPORT_byte(file, bn->s6addr, 16);
+        } else {
+            uint32_t saddr;
+            FIMPORT_u32(file, saddr);
+            memset(bn->s6addr, 0, 16);
+            bn->s6addr[10] = 0xff;
+            bn->s6addr[11] = 0xff;
+            memcpy(bn->s6addr+12, &saddr, 4);
+        }
         FIMPORT_u32(file, bn->count);
         FIMPORT_u32(file, bn->last_time.tv_sec);
         FIMPORT_u32(file, bn->first_seen_addr);
@@ -2179,7 +2348,7 @@ load_data ()
         tv.tv_sec = soft_timeout - time_diff;
         tv.tv_usec = 0;
 
-        g_tree_insert(current_blocks, &bn->saddr, bn);
+        g_tree_insert(current_blocks, bn->s6addr, bn);
 
         evtimer_assign(&bn->timeout, base, (void *) expire_bnode, bn);
         evtimer_add(&bn->timeout, &tv);

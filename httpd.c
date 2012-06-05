@@ -83,12 +83,11 @@ uint32_t event_remaining_seconds(struct event *ev)
 gboolean
 fill_http_blocks(void *key, blocked_node_t * val, struct evbuffer *buf)
 {
-    char           blockedaddr[20] = { 0 };
-    char           triggeraddr[20] = { 0 };
+    char           blockedaddr[INET6_ADDRSTRLEN];
+    char           triggeraddr[INET6_ADDRSTRLEN];
 
-    strncpy(blockedaddr, inet_ntoa(*(struct in_addr *) &val->saddr), sizeof(blockedaddr) - 1);
-    strncpy(triggeraddr, inet_ntoa(*(struct in_addr *) &val->first_seen_addr), sizeof(triggeraddr) - 1);
-
+    thrash_inet_ntop(val->s6addr, blockedaddr, sizeof(blockedaddr));
+    inet_ntop(AF_INET,  &(val->first_seen_addr), triggeraddr, sizeof(triggeraddr));
 
     evbuffer_add_printf(buf, "%-15s %-15s %-10d ",
                         blockedaddr, triggeraddr, val->count);
@@ -142,16 +141,16 @@ const char *blankprint(const char *str)
 gboolean
 fill_http_blocks_html(void *key, blocked_node_t * val, struct evbuffer *buf)
 {
-    char          *addr;
+    char          addr[INET6_ADDRSTRLEN];
 
-    addr = inet_ntoa(*(struct in_addr *) &val->saddr);
+    thrash_inet_ntop(val->s6addr, addr, sizeof(addr));
     evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addr, addr);
 #ifdef WITH_GEOIP
     if(gi)
-        evbuffer_add_printf(buf, "<td>%s</td>", blankprint(GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr))));
+        evbuffer_add_printf(buf, "<td>%s</td>", blankprint(GeoIP_country_name_by_ipnum_v6(gi, *(geoipv6_t*)&(val->s6addr))));
 #endif
     
-    addr = inet_ntoa(*(struct in_addr *) &val->first_seen_addr);
+    inet_ntop(AF_INET, &(val->first_seen_addr), addr, sizeof(addr));
     evbuffer_add_printf(buf, "<td>%s</td><td>%d</td>",
                         addr, val->count);
 
@@ -242,8 +241,10 @@ fill_current_connections_html(client_conn_t * conn, struct evbuffer *buf)
 gboolean
 fill_http_addr(void *key, qstats_t * val, struct evbuffer *buf)
 {
+    char addrbuf[INET6_ADDRSTRLEN];
+
     evbuffer_add_printf(buf, "%-15s  %-15d  ",
-                        inet_ntoa(*(struct in_addr *) &val->saddr),
+                        thrash_inet_ntop(val->s6addr, addrbuf, sizeof(addrbuf)),
                         val->connections);
 
     if (val->timeout.ev_timeout.tv_sec == 0) {
@@ -258,12 +259,14 @@ fill_http_addr(void *key, qstats_t * val, struct evbuffer *buf)
 gboolean
 fill_http_addr_html(void *key, qstats_t * val, struct evbuffer *buf)
 {
-    char *addr = inet_ntoa(*(struct in_addr *) &val->saddr);
-    evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addr, addr);
+    char addrbuf[INET6_ADDRSTRLEN];
+
+    thrash_inet_ntop(val->s6addr, addrbuf, sizeof(addrbuf)),
+    evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addrbuf, addrbuf);
 
 #ifdef WITH_GEOIP
     if(gi)
-        evbuffer_add_printf(buf, "<td>%s</td>", blankprint(GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr))));
+        evbuffer_add_printf(buf, "<td>%s</td>", blankprint(GeoIP_country_name_by_ipnum_v6(gi, *(geoipv6_t*)&(val->s6addr))));
 #endif
 
     evbuffer_add_printf(buf, "<td>%d</td>", val->connections);
@@ -286,10 +289,12 @@ fill_http_addr_html(void *key, qstats_t * val, struct evbuffer *buf)
 gboolean
 fill_http_urihost(void *key, qstats_t * val, struct evbuffer *buf)
 {
-    char *colon;
+    char *semi;
+    char addrbuf[INET6_ADDRSTRLEN];
 
+    thrash_inet_ntop(val->s6addr, addrbuf, sizeof(addrbuf)),
     evbuffer_add_printf(buf, "%-15s  %-15d  ",
-                        inet_ntoa(*(struct in_addr *) &val->saddr), 
+                        addrbuf,
                         val->connections);
 
     if (val->timeout.ev_timeout.tv_sec == 0) {
@@ -299,9 +304,9 @@ fill_http_urihost(void *key, qstats_t * val, struct evbuffer *buf)
     }
 
     /* Print up to 40 chars of the uri or host */
-    colon = strchr(key, ':');
-    if (colon)
-        evbuffer_add_printf(buf, "%.*s ", (int)MIN(40, strlen(colon+1)), colon+1);
+    semi = strchr(key, ';');
+    if (semi)
+        evbuffer_add_printf(buf, "%.*s ", (int)MIN(40, strlen(semi+1)), semi+1);
         
     evbuffer_add_printf(buf, "\n");
     return FALSE;
@@ -310,14 +315,15 @@ fill_http_urihost(void *key, qstats_t * val, struct evbuffer *buf)
 gboolean
 fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf, char *type)
 {
-    char *colon;
+    char *semi;
+    char addrbuf[INET6_ADDRSTRLEN];
 
-    char *addr = inet_ntoa(*(struct in_addr *) &val->saddr);
-    evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addr, addr);
+    thrash_inet_ntop(val->s6addr, addrbuf, sizeof(addrbuf)),
+    evbuffer_add_printf(buf, "<tr><td onclick=\"ipMouse('%s');\">%s</td>", addrbuf, addrbuf);
 
 #ifdef WITH_GEOIP
     if(gi)
-        evbuffer_add_printf(buf, "<td>%s</td>", blankprint(GeoIP_country_name_by_ipnum(gi, ntohl(val->saddr))));
+        evbuffer_add_printf(buf, "<td>%s</td>", blankprint(GeoIP_country_name_by_ipnum_v6(gi, *(geoipv6_t*)&(val->s6addr))));
 #endif
 
     evbuffer_add_printf(buf, "<td>%d</td>", val->connections);
@@ -331,9 +337,9 @@ fill_http_urihost_html(void *key, qstats_t * val, struct evbuffer *buf, char *ty
     evbuffer_add_printf(buf, "<td>%s</td>", blankprint(val->reason));
 
     /* Print up to 80 chars of the uri or host */
-    colon = strchr(key, ':');
-    if (colon) {
-        gchar *escaped = g_markup_escape_text(colon+1, MIN(80, strlen(colon+1)));
+    semi = strchr(key, ';');
+    if (semi) {
+        gchar *escaped = g_markup_escape_text(semi+1, MIN(80, strlen(semi+1)));
         evbuffer_add_printf(buf, "<td>%s</td>", escaped);
         g_free(escaped);
     } else
@@ -770,7 +776,7 @@ httpd_action(struct evhttp_request *req, void *arg)
         redir = "addrs.html";
         qstats_t *stats = g_hash_table_lookup(addr_table, key);
         if (stats)
-            block_addr(0, stats->saddr, "web:blockAddr");
+            block_addr(0, stats->s6addr, "web:blockAddr");
     } else if (strcmp(action, "removeUri") == 0) {
         redir = "uris.html";
         qstats_t *stats = g_hash_table_lookup(uri_table, key);
@@ -780,7 +786,7 @@ httpd_action(struct evhttp_request *req, void *arg)
         redir = "uris.html";
         qstats_t *stats = g_hash_table_lookup(uri_table, key);
         if (stats)
-            block_addr(0, stats->saddr, "web:blockUri");
+            block_addr(0, stats->s6addr, "web:blockUri");
     } else if (strcmp(action, "removeHost") == 0) {
         redir = "hosts.html";
         qstats_t *stats = g_hash_table_lookup(host_table, key);
@@ -790,7 +796,7 @@ httpd_action(struct evhttp_request *req, void *arg)
         redir = "hosts.html";
         qstats_t *stats = g_hash_table_lookup(host_table, key);
         if (stats)
-            block_addr(0, stats->saddr, "web:blockHost");
+            block_addr(0, stats->s6addr, "web:blockHost");
     } else if (strcmp(action, "updateurl") == 0) {
         redir = "config.html";
         block_ratio_t *request_uri_ratio = g_hash_table_lookup(uris_ratio_table, key);

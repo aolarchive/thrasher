@@ -135,6 +135,7 @@ thrash_bcast_connect(char *nodename)
 void
 thrash_bcast_send(blocked_node_t *bnode)
 {
+    char     addrbuf[INET6_ADDRSTRLEN];
     char     buffer[1000];
     struct   bufferevent *be;
     int      i;
@@ -146,12 +147,21 @@ thrash_bcast_send(blocked_node_t *bnode)
     int      rlen = bnode->reason?strlen(bnode->reason):0;
     uint16_t n_rlen = htons(rlen + plen + 1);
 
-    buffer[0] = TYPE_INJECT_v2;
-    memcpy(buffer+1, &bnode->saddr, 4);
-    memcpy(buffer+5, &n_rlen, 2);
-    memcpy(buffer+7, process_name, plen);
-    buffer[7+plen] = ':';
-    memcpy(buffer+7+plen+1, bnode->reason, rlen);
+    if (1) {
+        buffer[0] = TYPE_INJECT_v2;
+        memcpy(buffer+1, bnode->s6addr+12, 4);
+        memcpy(buffer+5, &n_rlen, 2);
+        memcpy(buffer+7, process_name, plen);
+        buffer[7+plen] = ':';
+        memcpy(buffer+7+plen+1, bnode->reason, rlen);
+    } else {
+        buffer[0] = TYPE_INJECT_v6;
+        memcpy(buffer+1, &bnode->s6addr, 16);
+        memcpy(buffer+17, &n_rlen, 2);
+        memcpy(buffer+19, process_name, plen);
+        buffer[19+plen] = ':';
+        memcpy(buffer+19+plen+1, bnode->reason, rlen);
+    }
 
     for (i = 0; broadcasts[i]; i++) {
         if (!*broadcasts[i])
@@ -166,6 +176,6 @@ thrash_bcast_send(blocked_node_t *bnode)
         }
         bufferevent_write(be, buffer, 7 + plen + 1 + rlen);
         if (debug)
-            LOG(logfile, "Sending %s to %s", inet_ntoa(*(struct in_addr *) &bnode->saddr), broadcasts[i]);
+            LOG(logfile, "Sending %s to %s", inet_ntop(AF_INET6, bnode->s6addr, addrbuf, sizeof(addrbuf)), broadcasts[i]);
     }
 }

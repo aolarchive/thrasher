@@ -290,6 +290,11 @@ thrash_client_lookup(thrash_client_t * cli, uint32_t addr, void *data)
         memcpy(&cli->data.buf[15 + q->host_len + q->uri_len], q->reason, q->reason_len);
         break;
 
+    case TYPE_THRESHOLD_v6:
+    case TYPE_INJECT_v6 :
+    case TYPE_REMOVE_v6 :
+        break;
+
     }
 
     cli->addr_lookup = addr;

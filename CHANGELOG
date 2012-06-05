@@ -1,3 +1,6 @@
+1.2r1
+    * IPv6 support
+
 1.1r2
     * Added start timestamp to config output
 

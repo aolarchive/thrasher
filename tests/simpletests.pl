@@ -4,10 +4,11 @@
 use strict;
 use IO::Socket;
 use LWP::Simple;
-use Test::More tests => 107;
+use Test::More tests => 112;
 use File::Temp qw/tempfile/;
 use Data::Dumper;
 use HTML::TableExtract;
+use Socket6;
 
 use constant {
 TYPE_THRESHOLD_v1 => 0,
@@ -16,7 +17,10 @@ TYPE_INJECT       => 2,
 TYPE_THRESHOLD_v2 => 3,
 TYPE_THRESHOLD_v3 => 4,
 TYPE_THRESHOLD_v4 => 5,
+TYPE_THRESHOLD_v6 => 6,
 TYPE_INJECT_v2    => 100,
+TYPE_INJECT_v6    => 101,
+TYPE_REMOVE_v6    => 102,
 };
 
 sub max ($$) { $_[$_[0] < $_[1]] }
@@ -53,11 +57,27 @@ my ($address, $reason) = @_;
     $main::thrasher->syswrite($data);
 }
 
+sub thrasher_inject_v6($$) {
+my ($address, $reason) = @_;
+
+    my $addr = inet_pton(AF_INET6, $address);
+    my $data = pack("Ca*na*", TYPE_INJECT_v6, $addr, length($reason), $reason);
+    $main::thrasher->syswrite($data);
+}
+
 sub thrasher_remove($) {
 my ($address) = @_;
 
     my $addr = inet_aton($address);
     my $data = pack("Ca*", TYPE_REMOVE, $addr);
+    $main::thrasher->syswrite($data);
+}
+
+sub thrasher_remove_v6($) {
+my ($address) = @_;
+
+    my $addr = inet_pton(AF_INET6, $address);
+    my $data = pack("Ca*", TYPE_REMOVE_v6, $addr);
     $main::thrasher->syswrite($data);
 }
 
@@ -88,6 +108,18 @@ my ($identifier, $address, $host, $uri, $reason) = @_;
 
     my $addr = inet_aton($address);
     my $data = pack("CnNa*nna*a*a*", TYPE_THRESHOLD_v4, length($reason), $identifier, $addr, length($uri), length($host), $uri, $host, $reason);
+    $main::thrasher->syswrite($data);
+    $main::thrasher->read(my $buf, 5, 0);
+    my ($id, $permit) = unpack("NC", $buf);
+    die "$id != $identifier" if ($id != $identifier);
+    return $permit;
+}
+
+sub thrasher_query_v6($$$$$) {
+my ($identifier, $address, $host, $uri, $reason) = @_;
+
+    my $addr = inet_pton(AF_INET6, $address);
+    my $data = pack("CnNa*nna*a*a*", TYPE_THRESHOLD_v6, length($reason), $identifier, $addr, length($uri), length($host), $uri, $host, $reason);
     $main::thrasher->syswrite($data);
     $main::thrasher->read(my $buf, 5, 0);
     my ($id, $permit) = unpack("NC", $buf);
@@ -213,6 +245,7 @@ sub thrasherd_http_hosts {
 
 sub thrasherd_http_hosts_html {
     my $content = get("http://localhost:54321/hosts.html");
+    #print $content;
     my $te = HTML::TableExtract->new();
     $te->parse($content);
     return $te->rows;
@@ -299,16 +332,20 @@ $main::connDate = $connections{"127.0.0.1:$main::sockport"}->{connDate};
 # First test adding ips to holddown
 thrasher_inject("10.10.10.10");
 thrasher_inject_v2("1.2.3.4", "test reason");
+thrasher_inject_v6("::FFFF:1.2.3.5", "test reason2");
+thrasher_inject_v6("1111:2222:3333:4444:5555:6666:7777:8888", "test reason3");
 
 my @table = thrasherd_http_holddowns_html();
 is_deeply ($table[0], ["Blocked IP","Country","Triggered By","Count","Velocity","Soft","Hard","Recent","Reason","Actions"], "B:0");
 is_deeply ($table[1], ["1.2.3.4","Australia","255.255.255.255","0","N/A","5","9","N/A","test reason","Unblock"], "B:1");
-is_deeply ($table[2], ["10.10.10.10"," ","255.255.255.255","0","N/A","5","9","N/A","inject","Unblock"], "B:2");
+is_deeply ($table[2], ["1.2.3.5","Australia","255.255.255.255","0","N/A","5","9","N/A","test reason2","Unblock"], "B:2");
+is_deeply ($table[3], ["10.10.10.10"," ","255.255.255.255","0","N/A","5","9","N/A","inject","Unblock"], "B:3");
+is_deeply ($table[4], ["1111:2222:3333:4444:5555:6666:7777:8888"," ","255.255.255.255","0","N/A","5","9","N/A","test reason3","Unblock"], "B:4");
 
 sleep(1);
 
 %connections = thrasherd_http_connections();
-is ($connections{"127.0.0.1:$main::sockport"}->{requests}, 2);
+is ($connections{"127.0.0.1:$main::sockport"}->{requests}, 4);
 is ($connections{"127.0.0.1:$main::sockport"}->{connDate}, $main::connDate);
 ok (exists $connections{"127.0.0.1:$main::sockport"}->{lastDate});
 
@@ -321,6 +358,7 @@ is (thrasher_query_v2("4.3.2.1"), 0);
 is (thrasher_query_v3(1, "10.10.10.10", "host3", "/uri3"), 1);
 is (thrasher_query_v3(2, "1.2.3.4", "host3", "/uri3"), 1);
 is (thrasher_query_v4(3, "4.3.2.1", "host3", "/uri3", "test1"), 0);
+is (thrasher_query_v6(4, "::FFFF:4.3.2.1", "host4", "/uri4", "test2"), 0);
 is (thrasher_query_v3(0, "10.10.10.10", "host3", "/uri3"), 1); #Bug: Test id=0 with v3
 
 @table = thrasherd_http_addrs_html();
@@ -334,7 +372,7 @@ is_deeply($table[2], [ '4.3.2.1', 'United States', '1', '10', 'test1', '/uri3', 
 
 @table = thrasherd_http_hosts_html();
 is_deeply($table[0], [ 'Address', 'Country', 'Connections', 'Timeout', 'Reason', 'Host (80 char max)', 'Actions' ], "H:0");
-is_deeply($table[1], [ '4.3.2.1', 'United States', '1', '12', 'test1', 'host3', 'Remove Block' ], "H:1");
+is_deeply($table[1], [ '4.3.2.1', 'United States', '1', '12', 'test2', 'host4', 'Remove Block' ], "H:1");
 is_deeply($table[2], [ '4.3.2.1', 'United States', '1', '12', ' ', 'host1', 'Remove Block' ], "H:2");
 
 my %holddowns = thrasherd_http_holddowns();
@@ -365,6 +403,8 @@ is ($uris{"4.3.2.1:/uri3"}->{connections}, 1);
 # Remove added ips and make sure holddown goes away
 thrasher_remove("1.2.3.4");
 thrasher_remove("10.10.10.10");
+thrasher_remove_v6("::FFFF:1.2.3.5");
+thrasher_remove_v6("1111:2222:3333:4444:5555:6666:7777:8888");
 
 sleep(1);
 
@@ -372,6 +412,8 @@ sleep(1);
 is($holddowns{"1.2.3.4"}, undef);
 is($holddowns{"10.10.10.10"}, undef);
 is($holddowns{"4.3.2.1"}, undef);
+is($holddowns{"5.3.2.1"}, undef);
+is($holddowns{"1111:2222:3333:4444:5555:6666:7777:8888"}, undef);
 
 is (thrasher_query_v1("10.10.10.10", "host", "/"), 0);
 is (thrasher_query_v1("1.2.3.4", "host", "/"), 0);
@@ -457,8 +499,8 @@ for (my $i = 0; $i < 10; $i++) {
 my @table = thrasherd2_http_holddowns_html();
 #print Dumper(\@table);
 is_deeply ($table[0], ["Blocked IP","Country","Triggered By","Count","Velocity","Soft","Hard","Recent","Reason","Actions"], "C:0");
-is_deeply ($table[1], ["4.3.2.1","United States","255.255.255.255","0","N/A","59","99","N/A","default:reason","Unblock"], "C:1");
-is_deeply ($table[2], ["1.2.3.4","Australia","255.255.255.255","0","N/A","49","89","N/A","default:","Unblock"], "C:2");
+is_deeply ($table[1], ["1.2.3.4","Australia","255.255.255.255","0","N/A","49","89","N/A","default:","Unblock"], "C:1");
+is_deeply ($table[2], ["4.3.2.1","United States","255.255.255.255","0","N/A","59","99","N/A","default:reason","Unblock"], "C:2");
 is_deeply ($table[3], ["10.10.10.10"," ","255.255.255.255","0","N/A","49","89","N/A","default:","Unblock"], "C:3");
 
 
@@ -469,6 +511,6 @@ thrasher_remove("4.3.2.1");
 sleep(1);
 
 my %connections = thrasherd_http_connections();
-is ($connections{"127.0.0.1:$main::sockport"}->{requests}, 645);
+is ($connections{"127.0.0.1:$main::sockport"}->{requests}, 650);
 is ($connections{"127.0.0.1:$main::sockport"}->{connDate}, $main::connDate);
 ok (exists $connections{"127.0.0.1:$main::sockport"}->{lastDate});
