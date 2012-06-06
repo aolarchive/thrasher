@@ -147,7 +147,7 @@ thrash_bcast_send(blocked_node_t *bnode)
     int      rlen = bnode->reason?strlen(bnode->reason):0;
     uint16_t n_rlen = htons(rlen + plen + 1);
 
-    if (1) {
+    if (0) {
         buffer[0] = TYPE_INJECT_v2;
         memcpy(buffer+1, bnode->s6addr+12, 4);
         memcpy(buffer+5, &n_rlen, 2);
