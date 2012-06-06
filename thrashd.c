@@ -2307,7 +2307,7 @@ load_data ()
             exit(1);
         }
 
-        if (version >= 2) {
+        if (version >= 3) {
             FIMPORT_byte(file, bn->s6addr, 16);
         } else {
             uint32_t saddr;
