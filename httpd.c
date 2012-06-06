@@ -191,8 +191,12 @@ fill_http_blocks_html(void *key, blocked_node_t * val, struct evbuffer *buf)
 
     evbuffer_add_printf(buf, "<td>%s</td>", blankprint(val->reason));
 
-    if (http_password)
-        evbuffer_add_printf(buf, "<td><a href=\"action?action=removeHolddown&key=%d\">Unblock</a></td>",*(uint32_t *)key);
+    if (http_password) {
+        char          addrbuf[INET6_ADDRSTRLEN];
+
+        inet_ntop(AF_INET6, val->s6addr, addrbuf, sizeof(addrbuf));
+        evbuffer_add_printf(buf, "<td><a href=\"action?action=removeHolddown&key=%s\">Unblock</a></td>", addrbuf);
+    }
     evbuffer_add_printf(buf, "</tr>");
      
     return FALSE;
@@ -762,10 +766,12 @@ httpd_action(struct evhttp_request *req, void *arg)
 
     if (strcmp(action, "removeHolddown") == 0) {
         redir = "holddowns.html";
-        uint32_t        saddr = atoi(key);
+        uint128_t       s6addr;
         blocked_node_t *bnode;
 
-        if ((bnode = g_tree_lookup(current_blocks, &saddr)))
+        inet_pton(AF_INET6, key, s6addr);
+
+        if ((bnode = g_tree_lookup(current_blocks, &s6addr)))
             expire_bnode(0, 0, bnode);
     } else if (strcmp(action, "removeAddr") == 0) {
         redir = "addrs.html";
