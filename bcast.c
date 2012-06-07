@@ -180,8 +180,14 @@ thrash_bcast_send(blocked_node_t *bnode)
                 continue;
             g_hash_table_insert(broadcast_table, broadcasts[i], be);
         }
-        bufferevent_write(be, buffer, blen);
-        if (debug)
-            LOG(logfile, "Sending %s to %s (%d bytes)", inet_ntop(AF_INET6, bnode->s6addr, addrbuf, sizeof(addrbuf)), broadcasts[i], blen);
+        if (bufferevent_write(be, buffer, blen) >= 0) {
+            if (debug)
+                LOG(logfile, "Sending %s to %s (%d bytes)", inet_ntop(AF_INET6, bnode->s6addr, addrbuf, sizeof(addrbuf)), broadcasts[i], blen);
+        } else {
+            if (debug)
+                LOG(logfile, "Failure sending %s to %s (%d bytes)", inet_ntop(AF_INET6, bnode->s6addr, addrbuf, sizeof(addrbuf)), broadcasts[i], blen);
+            bufferevent_free(be);
+            g_hash_table_remove(broadcast_table, broadcasts[i]);
+        }
     }
 }
