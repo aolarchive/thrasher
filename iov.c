@@ -1,3 +1,9 @@
+/******************************************************************************/
+/* iov.c  -- utilities for io vectors
+ *
+ * Copyright 2007-2013 AOL Inc. All rights reserved.
+ *
+ */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

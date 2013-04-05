@@ -1,3 +1,9 @@
+/******************************************************************************/
+/* bgp.c  -- Functions dealing with bgp
+ *
+ * Copyright 2007-2013 AOL Inc. All rights reserved.
+ *
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>

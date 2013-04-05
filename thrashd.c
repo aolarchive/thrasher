@@ -1,3 +1,9 @@
+/******************************************************************************/
+/* thrasher.c  -- Main thrasher daemon application code
+ *
+ * Copyright 2007-2013 AOL Inc. All rights reserved.
+ *
+ */
 #include <pwd.h>
 #include <grp.h>
 

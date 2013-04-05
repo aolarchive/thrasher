@@ -1,3 +1,9 @@
+/******************************************************************************/
+/* http.c  -- Functions dealing with the http interface to thrasher
+ *
+ * Copyright 2007-2013 AOL Inc. All rights reserved.
+ *
+ */
 #include "thrasher.h"
 #include "event2/http_struct.h"
 #include "version.h"

@@ -1,3 +1,9 @@
+/******************************************************************************/
+/* libthrasher.c  -- Simple client library to thrasher
+ *
+ * Copyright 2007-2013 AOL Inc. All rights reserved.
+ *
+ */
 #include <stdio.h>
 #include <stdint.h>
 #include <errno.h>

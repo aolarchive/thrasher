@@ -1,3 +1,9 @@
+/******************************************************************************/
+/* master_thrasher.c  -- Simple command line tool interface to thrasher
+ *
+ * Copyright 2007-2013 AOL Inc. All rights reserved.
+ *
+ */
 #include <stdint.h>
 #include <errno.h>
 #include <sys/types.h>

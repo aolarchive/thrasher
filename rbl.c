@@ -1,3 +1,9 @@
+/******************************************************************************/
+/* rbl.c  -- Functions dealing with rbl queries
+ *
+ * Copyright 2007-2013 AOL Inc. All rights reserved.
+ *
+ */
 #include "thrasher.h"
 
 
