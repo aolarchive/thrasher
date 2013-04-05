@@ -10,4 +10,4 @@ can be enabled.
 This was originally developed to facilitate a very large farm  of  web
 servers, so many of the keywords and features may be HTTP sounding.
 
-It is relased under the BSD license.
+It is released under the BSD license.
