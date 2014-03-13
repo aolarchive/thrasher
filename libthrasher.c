@@ -240,8 +240,8 @@ thrash_client_lookup(thrash_client_t * cli, uint32_t addr, void *data)
         initialize_iov(&cli->data, 7 + q->reason_len);
 
         memcpy(cli->data.buf, &cli->type, 1);
-        memcpy(&cli->data.buf[1], &rlen, sizeof(uint16_t));
-        memcpy(&cli->data.buf[3], &addr, 4);
+        memcpy(&cli->data.buf[1], &addr, 4);
+        memcpy(&cli->data.buf[5], &rlen, sizeof(uint16_t));
         memcpy(&cli->data.buf[7], q->reason, q->reason_len);
         break;
     case TYPE_THRESHOLD_v3:
